@@ -10,6 +10,7 @@ const defaultProps: TimelineManifest = {
   width: 1920,
   height: 1080,
   shots: [],
+  lyrics_timeline: {},
   audio: {bgm: null, se: null, narration: null},
   todos: [],
 };

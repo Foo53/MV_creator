@@ -4,13 +4,13 @@
 <section class="panel">
   <div class="toolbar">
     <h1>{{ design.brief.title }}</h1>
-    <a class="button secondary" href="/projects/{{ project }}/references">参照画像</a>
-    <a class="button secondary" href="/projects/{{ project }}/shots">ショット生成</a>
+    <a class="button secondary" href="/projects/{{ project }}/shots">画像プロンプト・アップロード</a>
     {% if is_mv %}
     <a class="button secondary" href="/projects/{{ project }}/music">音楽設定</a>
     {% endif %}
   </div>
   <p>{{ design.brief.logline }}</p>
+  <p class="muted">制作モード: {% if design.creation_mode == "lyrics_to_mv" %}入力済み歌詞から静止画MVを作成{% else %}アイデアから曲と静止画MVを作成{% endif %}</p>
   <div class="grid">
     <div class="stat"><strong>ショット数</strong><br>{{ counts.total }}</div>
     <div class="stat"><strong>画像生成済み</strong><br>{{ counts.generated }}</div>
@@ -19,7 +19,7 @@
 </section>
 <section class="panel">
   <h2>Remotion動画</h2>
-  <p class="muted">生成済み画像をショット順につなげ、字幕付きの音なしMP4を作成します。</p>
+  <p class="muted">生成済み画像をショット順につなげ、歌詞字幕とアップロード済みBGMを含むMP4を作成します。</p>
   <div class="toolbar">
     <form method="post" action="/projects/{{ project }}/timeline">
       <button type="submit">タイムラインを生成</button>
@@ -36,7 +36,7 @@
       <a class="button secondary" href="/files/{{ project }}/videos/assembled_video.mp4">動画を開く</a>
     {% endif %}
   </div>
-  <p class="help">初回レンダリング前に `remotion/` ディレクトリで `npm install` が必要です。BGM、SE、読み上げ音声は今後追加予定です。</p>
+  <p class="help">初回レンダリング前に `remotion/` ディレクトリで `npm install` が必要です。SEと読み上げ音声は今後追加予定です。</p>
 </section>
 <section class="grid">
   <div class="panel">

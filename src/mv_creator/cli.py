@@ -11,6 +11,7 @@ from mv_creator.pipeline import (
     rebuild_mv_visual_design,
     revise_existing_design,
     run_idea_pipeline,
+    run_lyrics_pipeline,
 )
 from mv_creator.providers import ProviderError, make_provider
 from mv_creator.rag import RAGStore
@@ -29,6 +30,11 @@ def main(argv: list[str] | None = None) -> None:
     create_mv_cmd = sub.add_parser("create-mv")
     _add_common_generation_args(create_mv_cmd)
     create_mv_cmd.add_argument("--idea", required=True)
+
+    create_from_lyrics_cmd = sub.add_parser("create-mv-from-lyrics")
+    _add_common_generation_args(create_from_lyrics_cmd)
+    create_from_lyrics_cmd.add_argument("--lyrics", required=True)
+    create_from_lyrics_cmd.add_argument("--music-style", default="")
 
     revise_cmd = sub.add_parser("revise")
     _add_provider_args(revise_cmd)
@@ -65,8 +71,8 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "create-mv":
-        provider = make_provider(args.provider, args.model)
         try:
+            provider = make_provider(args.provider, args.model)
             design = run_idea_pipeline(
                 idea=args.idea,
                 project=args.project,
@@ -87,9 +93,33 @@ def main(argv: list[str] | None = None) -> None:
         _print_done(args.project, output_root, design)
         return
 
-    if args.command == "revise":
-        provider = make_provider(args.provider, args.model)
+    if args.command == "create-mv-from-lyrics":
         try:
+            provider = make_provider(args.provider, args.model)
+            design = run_lyrics_pipeline(
+                lyrics=args.lyrics,
+                music_style=args.music_style,
+                project=args.project,
+                provider=provider,
+                output_root=output_root,
+                audience=args.audience,
+                style=args.style,
+                duration_seconds=args.duration_seconds,
+                genre=args.genre,
+                mood=args.mood,
+                color_tone=args.color_tone,
+                narration_style=args.narration_style,
+                target_platform=args.target_platform,
+            )
+        except ProviderError as exc:
+            _print_provider_error(exc)
+            return
+        _print_done(args.project, output_root, design)
+        return
+
+    if args.command == "revise":
+        try:
+            provider = make_provider(args.provider, args.model)
             design = revise_existing_design(project=args.project, provider=provider, output_root=output_root)
         except ProviderError as exc:
             _print_provider_error(exc)
@@ -98,8 +128,8 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "rebuild-mv-visuals":
-        provider = make_provider(args.provider, args.model)
         try:
+            provider = make_provider(args.provider, args.model)
             design = rebuild_mv_visual_design(project=args.project, provider=provider, output_root=output_root)
         except ProviderError as exc:
             _print_provider_error(exc)

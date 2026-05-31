@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -10,17 +11,22 @@ from urllib.parse import quote
 
 from pydantic import BaseModel, Field
 
-from mv_creator.models import ProductionDesign, ProjectPaths, ShotPlan
+from mv_creator.models import ProductionDesign, ProjectPaths, ShotPlan, SongSection
 
 
 class TimelineTransition(BaseModel):
     type: str = "crossfade"
-    duration_seconds: float = 0.5
+    duration_seconds: float = 0.6
 
 
 class TimelineMotion(BaseModel):
     type: str = "slow_zoom_in"
-    strength: float = 0.06
+    start_scale: float = 1.02
+    end_scale: float = 1.08
+    start_x_percent: float = 0.0
+    end_x_percent: float = 0.0
+    start_y_percent: float = 0.0
+    end_y_percent: float = 0.0
 
 
 class TimelineShot(BaseModel):
@@ -69,9 +75,10 @@ def build_timeline_manifest(
     design = ProductionDesign.model_validate_json(paths.design_json.read_text(encoding="utf-8"))
     video_prompt_by_shot = {prompt.shot_id: prompt for prompt in design.video_prompts}
     shots: list[TimelineShot] = []
-    for index, shot in enumerate(sorted(design.shots, key=lambda item: item.order)):
+    ordered_shots = sorted(design.shots, key=lambda item: item.order)
+    durations = _normalized_shot_durations(design, ordered_shots, video_prompt_by_shot)
+    for index, shot in enumerate(ordered_shots):
         video_prompt = video_prompt_by_shot.get(shot.shot_id)
-        duration = float(video_prompt.duration_seconds if video_prompt else _default_duration(design))
         image_path = _resolve_shot_image(paths, shot.shot_id, index)
         image_exists = bool(image_path and image_path.exists())
         motion = _motion_for_shot(shot.motion, index)
@@ -82,14 +89,18 @@ def build_timeline_manifest(
                 image_path=_relative_or_none(paths.root, image_path) if image_exists else None,
                 image_src=_file_uri_or_none(image_path) if image_exists else None,
                 status="ready" if image_exists else "missing",
-                duration_seconds=duration,
+                duration_seconds=durations[index],
                 caption=_caption_for_shot(shot),
                 narration=_narration_for_shot(shot.description, shot.audio, video_prompt.temporal_notes if video_prompt else ""),
                 motion=motion,
+                transition=TimelineTransition(
+                    type="cut" if index == 0 else shot.transition_type,
+                    duration_seconds=0.0 if index == 0 or shot.transition_type == "cut" else shot.transition_duration_seconds,
+                ),
             )
         )
     platform_w, platform_h = _platform_resolution(design.brief.target_platform)
-    lyrics_timeline = _build_lyrics_timeline(design)
+    lyrics_timeline = _build_lyrics_timeline(design, shots)
     audio = {"bgm": None, "se": None, "narration": None}
     if design.suno_params and design.suno_params.audio_path:
         audio_path = paths.root / design.suno_params.audio_path
@@ -105,7 +116,6 @@ def build_timeline_manifest(
         lyrics_timeline=lyrics_timeline,
         audio=audio,
         todos=[
-            "BGMトラックをtimeline_manifest.jsonへ追加し、Remotionで重ねる。",
             "SEトラックをショット単位で指定し、雨音やUI音などを追加する。",
             "TTSProviderを実装し、narrationから読み上げ音声を生成して重ねる。",
         ],
@@ -136,9 +146,10 @@ def render_timeline_with_remotion(
     videos_dir.mkdir(parents=True, exist_ok=True)
     output_path = videos_dir / "assembled_video.mp4"
     remotion_root = repo_root / "remotion"
+    local_remotion = remotion_root / "node_modules" / ".bin" / ("remotion.cmd" if os.name == "nt" else "remotion")
+    runner = [str(local_remotion)] if local_remotion.exists() else ["npx", "remotion"]
     command = [
-        "npx",
-        "remotion",
+        *runner,
         "render",
         "src/index.ts",
         composition_id,
@@ -150,7 +161,15 @@ def render_timeline_with_remotion(
         if progress_callback:
             result = _run_with_progress(command, remotion_root, progress_callback)
         else:
-            result = subprocess.run(command, cwd=remotion_root, capture_output=True, text=True, timeout=900)
+            result = subprocess.run(
+                command,
+                cwd=remotion_root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=900,
+            )
     except FileNotFoundError as exc:
         return _write_render_report(
             paths.root,
@@ -179,7 +198,15 @@ def _run_with_progress(
     cwd: Path,
     progress_callback: Callable[[int, int, str], None],
 ) -> subprocess.CompletedProcess[str]:
-    proc = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     stdout_lines: list[str] = []
     render_re = re.compile(r"Rendered\s+(\d+)/(\d+)")
     assert proc.stdout is not None
@@ -219,17 +246,32 @@ def _platform_resolution(target_platform: str) -> tuple[int, int]:
     return mapping.get(target_platform, (0, 0))
 
 
-def _build_lyrics_timeline(design: ProductionDesign) -> dict[str, list[str]]:
+def _build_lyrics_timeline(design: ProductionDesign, shots: list[TimelineShot]) -> dict[str, list[str]]:
     if not design.suno_params or not design.suno_params.lyrics:
         return {}
     if design.song_sections:
-        shot_ids = [shot.shot_id for shot in sorted(design.shots, key=lambda s: s.order)]
-        if not shot_ids:
+        if not shots:
             return {}
+        section_durations = [max(0, section.estimated_duration_seconds) for section in design.song_sections]
+        if not any(section_durations):
+            section_durations = [1] * len(design.song_sections)
+        section_scale = sum(shot.duration_seconds for shot in shots) / sum(section_durations)
+        section_ranges: list[tuple[float, float, SongSection]] = []
+        section_elapsed = 0.0
+        for section, duration in zip(design.song_sections, section_durations):
+            start = section_elapsed
+            section_elapsed += duration * section_scale
+            section_ranges.append((start, section_elapsed, section))
         timeline: dict[str, list[str]] = {}
-        for index, shot_id in enumerate(shot_ids):
-            section = design.song_sections[min(index, len(design.song_sections) - 1)]
-            timeline[shot_id] = [f"[{section.label}]", *section.lyrics]
+        elapsed = 0.0
+        for shot in shots:
+            shot_end = elapsed + shot.duration_seconds
+            lines: list[str] = []
+            for start, end, section in section_ranges:
+                if start < shot_end and end > elapsed:
+                    lines.extend([f"[{section.label}]", *section.lyrics])
+            timeline[shot.shot_id] = lines
+            elapsed = shot_end
         return timeline
     all_lines = [line for line in design.suno_params.lyrics.split("\n") if line.strip()]
     shot_ids = [shot.shot_id for shot in sorted(design.shots, key=lambda s: s.order)]
@@ -255,18 +297,42 @@ def _narration_for_shot(description: str, audio: str, temporal_notes: str) -> st
 
 def _motion_for_shot(raw_motion: str, index: int) -> TimelineMotion:
     lowered = raw_motion.lower()
+    if "pan left" in lowered:
+        return TimelineMotion(type="slow_pan_left", start_scale=1.1, end_scale=1.1, start_x_percent=2.5, end_x_percent=-2.5)
+    if "pan right" in lowered:
+        return TimelineMotion(type="slow_pan_right", start_scale=1.1, end_scale=1.1, start_x_percent=-2.5, end_x_percent=2.5)
+    if "pan up" in lowered:
+        return TimelineMotion(type="slow_pan_up", start_scale=1.1, end_scale=1.1, start_y_percent=2.5, end_y_percent=-2.5)
+    if "pan down" in lowered:
+        return TimelineMotion(type="slow_pan_down", start_scale=1.1, end_scale=1.1, start_y_percent=-2.5, end_y_percent=2.5)
     if "pan" in lowered:
-        return TimelineMotion(type="slow_pan_right", strength=0.05)
+        return TimelineMotion(type="slow_pan_right", start_scale=1.1, end_scale=1.1, start_x_percent=-2.5, end_x_percent=2.5)
     if "orbit" in lowered:
-        return TimelineMotion(type="slow_pan_left", strength=0.05)
+        return TimelineMotion(type="slow_pan_left", start_scale=1.1, end_scale=1.1, start_x_percent=2.0, end_x_percent=-2.0)
     if "hold" in lowered:
-        return TimelineMotion(type="hold", strength=0.0)
-    return TimelineMotion(type="slow_zoom_in" if index % 2 == 0 else "slow_zoom_out", strength=0.06)
+        return TimelineMotion(type="hold", start_scale=1.03, end_scale=1.03)
+    if "zoom out" in lowered:
+        return TimelineMotion(type="slow_zoom_out", start_scale=1.1, end_scale=1.02)
+    return TimelineMotion(type="slow_zoom_in" if index % 2 == 0 else "slow_zoom_out", start_scale=1.02, end_scale=1.08)
 
 
 def _default_duration(design: ProductionDesign) -> float:
     shot_count = max(len(design.shots), 1)
     return max(3.0, min(8.0, design.brief.duration_seconds / shot_count))
+
+
+def _normalized_shot_durations(
+    design: ProductionDesign,
+    shots: list[ShotPlan],
+    video_prompt_by_shot: dict,
+) -> list[float]:
+    durations = [shot.still_duration_seconds or _default_duration(design) for shot in shots]
+    total = sum(durations)
+    target = float(design.brief.duration_seconds)
+    if total <= 0 or target <= 0:
+        return durations
+    scale = target / total
+    return [duration * scale for duration in durations]
 
 
 def _relative_or_none(root: Path, path: Path | None) -> str | None:

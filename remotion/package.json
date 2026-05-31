@@ -2,6 +2,9 @@
   "name": "mv-creator-remotion",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "render": "remotion render src/index.ts VimaxTimelineVideo"
   },

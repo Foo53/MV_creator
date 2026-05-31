@@ -1,28 +1,30 @@
 import React from 'react';
-import {AbsoluteFill, Img, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
 import {TimelineShot} from './VimaxTimelineVideo';
 
 type Props = {
   shot: TimelineShot;
-  title: string;
   isMV?: boolean;
   lyricsLines?: string[];
+  transitionInFrames?: number;
+  isLast?: boolean;
 };
 
 const META_TAG_RE = /^\[.+\]\s*$/;
 
-export const ShotScene: React.FC<Props> = ({shot, title, isMV, lyricsLines}) => {
+export const ShotScene: React.FC<Props> = ({shot, isMV, lyricsLines, transitionInFrames = 0, isLast = false}) => {
   const frame = useCurrentFrame();
   const {durationInFrames, width} = useVideoConfig();
-  const fade = Math.min(18, Math.floor(durationInFrames * 0.18));
-  const opacity = interpolate(
-    frame,
-    [0, fade, Math.max(fade + 1, durationInFrames - fade), durationInFrames],
-    [0, 1, 1, 0],
-    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'},
-  );
+  const fadeOutFrames = isLast ? Math.min(18, Math.floor(durationInFrames * 0.18)) : 0;
+  const fadeInOpacity = transitionInFrames > 0
+    ? interpolate(frame, [0, transitionInFrames], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})
+    : 1;
+  const fadeOutOpacity = fadeOutFrames > 0
+    ? interpolate(frame, [durationInFrames - fadeOutFrames, durationInFrames], [1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})
+    : 1;
+  const opacity = Math.min(fadeInOpacity, fadeOutOpacity);
   const progress = durationInFrames <= 1 ? 0 : frame / (durationInFrames - 1);
-  const transform = motionTransform(shot.motion.type, shot.motion.strength, progress);
+  const transform = motionTransform(shot.motion, progress);
 
   const scale = width / 1920;
   const baseFontSize = 42 * scale;
@@ -101,19 +103,6 @@ export const ShotScene: React.FC<Props> = ({shot, title, isMV, lyricsLines}) => 
           {shot.caption}
         </div>
       )}
-      <div
-        style={{
-          position: 'absolute',
-          left: 38 * scale,
-          top: 28 * scale,
-          color: 'rgba(255,255,255,0.74)',
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: 22 * scale,
-          letterSpacing: 0,
-        }}
-      >
-        {title} / {shot.shot_id}
-      </div>
     </AbsoluteFill>
   );
 };
@@ -126,20 +115,10 @@ const lyricAtFrame = (lines: string[], frame: number, totalFrames: number): stri
   return visibleLines[index];
 };
 
-const motionTransform = (type: string, strength: number, progress: number): string => {
-  if (type === 'hold') {
-    return 'scale(1)';
-  }
-  const scaleIn = 1 + strength * progress;
-  const scaleOut = 1 + strength * (1 - progress);
-  if (type === 'slow_zoom_out') {
-    return `scale(${scaleOut})`;
-  }
-  if (type === 'slow_pan_right') {
-    return `scale(1.06) translateX(${(-strength * 50) + progress * strength * 100}px)`;
-  }
-  if (type === 'slow_pan_left') {
-    return `scale(1.06) translateX(${(strength * 50) - progress * strength * 100}px)`;
-  }
-  return `scale(${scaleIn})`;
+const motionTransform = (motion: TimelineShot['motion'], progress: number): string => {
+  const eased = Easing.inOut(Easing.cubic)(progress);
+  const scale = interpolate(eased, [0, 1], [motion.start_scale, motion.end_scale]);
+  const x = interpolate(eased, [0, 1], [motion.start_x_percent, motion.end_x_percent]);
+  const y = interpolate(eased, [0, 1], [motion.start_y_percent, motion.end_y_percent]);
+  return `scale(${scale}) translate(${x}%, ${y}%)`;
 };

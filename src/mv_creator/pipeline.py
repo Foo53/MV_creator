@@ -18,7 +18,7 @@ from mv_creator.agents import (
     SongAnalysisAgent,
     build_mv_context,
 )
-from mv_creator.models import ProductionDesign, ProjectPaths
+from mv_creator.models import ProductionDesign, ProjectPaths, SunoMusicParams
 from mv_creator.providers import LLMProvider
 from mv_creator.rag import RAGStore
 from mv_creator.renderers import write_all_outputs
@@ -53,9 +53,55 @@ def run_idea_pipeline(
     paths = ProjectPaths.for_project(project, output_root)
     init_project(paths)
     rag = RAGStore(paths.rag_store)
-    _notify(progress, "brief", "企画整理エージェントで制作ブリーフを生成しています", 1, 9)
+    _notify(progress, "brief", "企画整理エージェントで制作ブリーフを生成しています", 1, 11)
     brief = IdeationAgent(provider).run(idea, audience=audience, style=style, duration_seconds=duration_seconds, genre=genre, mood=mood, color_tone=color_tone, narration_style=narration_style, target_platform=target_platform)
-    return _run_common(brief, None, provider, rag, paths, progress)
+    return _run_common(brief, None, provider, rag, paths, progress, creation_mode="idea_to_mv")
+
+
+def run_lyrics_pipeline(
+    *,
+    lyrics: str,
+    project: str,
+    provider: LLMProvider,
+    output_root: Path,
+    audience: str,
+    style: str,
+    duration_seconds: int,
+    music_style: str = "",
+    genre: str = "",
+    mood: str = "",
+    color_tone: str = "",
+    narration_style: str = "",
+    target_platform: str = "",
+    progress: ProgressCallback | None = None,
+) -> ProductionDesign:
+    paths = ProjectPaths.for_project(project, output_root)
+    init_project(paths)
+    rag = RAGStore(paths.rag_store)
+    _notify(progress, "brief", "入力歌詞から静止画MVの制作ブリーフを抽出しています", 1, 10)
+    brief = IdeationAgent(provider).run(
+        lyrics,
+        audience=audience,
+        style=style,
+        duration_seconds=duration_seconds,
+        genre=genre,
+        mood=mood,
+        color_tone=color_tone,
+        narration_style=narration_style,
+        target_platform=target_platform,
+        source_type="lyrics",
+    )
+    suno_params = SunoMusicParams(lyrics=lyrics, style=music_style)
+    return _run_common(
+        brief,
+        None,
+        provider,
+        rag,
+        paths,
+        progress,
+        suno_params=suno_params,
+        creation_mode="lyrics_to_mv",
+    )
 
 
 def run_script_pipeline(
@@ -77,9 +123,9 @@ def run_script_pipeline(
     paths = ProjectPaths.for_project(project, output_root)
     init_project(paths)
     rag = RAGStore(paths.rag_store)
-    _notify(progress, "brief", "企画整理エージェントで制作ブリーフを生成しています", 1, 9)
+    _notify(progress, "brief", "企画整理エージェントで制作ブリーフを生成しています", 1, 11)
     brief = IdeationAgent(provider).run(script, audience=audience, style=style, duration_seconds=duration_seconds, genre=genre, mood=mood, color_tone=color_tone, narration_style=narration_style, target_platform=target_platform)
-    return _run_common(brief, script, provider, rag, paths, progress)
+    return _run_common(brief, script, provider, rag, paths, progress, creation_mode="idea_to_mv")
 
 
 def revise_existing_design(*, project: str, provider: LLMProvider, output_root: Path) -> ProductionDesign:
@@ -155,30 +201,44 @@ def _run_common(
     rag: RAGStore,
     paths: ProjectPaths,
     progress: ProgressCallback | None,
+    *,
+    suno_params: SunoMusicParams | None = None,
+    creation_mode: str,
 ) -> ProductionDesign:
-    _notify(progress, "music", "Suno歌詞とstyleを生成しています", 2, 11)
-    suno_params = MusicAgent(provider).run(brief)
-    _notify(progress, "song-analysis", "歌詞をIntro/Verse/Chorusなどの曲構成へ分解しています", 3, 11)
+    total = 11 if suno_params is None else 10
+    current = 2
+    if suno_params is None:
+        _notify(progress, "music", "Suno歌詞とstyleを生成しています", current, total)
+        suno_params = MusicAgent(provider).run(brief)
+        current += 1
+    _notify(progress, "song-analysis", "歌詞をIntro/Verse/Chorusなどの曲構成へ分解しています", current, total)
     song_sections = SongAnalysisAgent(provider).run(brief, suno_params)
-    _notify(progress, "mv-visual-plan", "歌詞とstyleに準拠するMV映像方針を生成しています", 4, 11)
+    current += 1
+    _notify(progress, "mv-visual-plan", "歌詞とstyleに準拠するMV映像方針を生成しています", current, total)
     mv_visual_plan = MVVisualPlannerAgent(provider).run(brief, suno_params, song_sections)
     mv_context = build_mv_context(
         suno_params=suno_params,
         song_sections=song_sections,
         mv_visual_plan=mv_visual_plan,
     )
-    _notify(progress, "script", "脚本エージェントでビートを生成しています", 5, 11)
+    current += 1
+    _notify(progress, "script", "脚本エージェントでビートを生成しています", current, total)
     script = ScreenwriterAgent(provider).run(brief, source_script, mv_context=mv_context)
-    _notify(progress, "characters", "キャラクター設計エージェントで参照情報を整理しています", 6, 11)
+    current += 1
+    _notify(progress, "characters", "キャラクター設計エージェントで参照情報を整理しています", current, total)
     characters = CharacterAgent(provider).run(brief, script, rag, mv_context=mv_context)
-    _notify(progress, "scenes", "シーン設計エージェントで場面構成を作っています", 7, 11)
+    current += 1
+    _notify(progress, "scenes", "シーン設計エージェントで場面構成を作っています", current, total)
     scenes = ScenePlannerAgent(provider).run(brief, script, characters, rag, mv_context=mv_context)
-    _notify(progress, "shots", "ショット設計エージェントでカメラと構図を作っています", 8, 11)
+    current += 1
+    _notify(progress, "shots", "ショット設計エージェントでカメラと構図を作っています", current, total)
     shots = ShotDirectorAgent(provider).run(brief, scenes, characters, rag, mv_context=mv_context)
-    _notify(progress, "prompts", "プロンプト設計エージェントで画像・動画プロンプトを作っています", 9, 11)
+    current += 1
+    _notify(progress, "prompts", "プロンプト設計エージェントで画像・動画プロンプトを作っています", current, total)
     prompts = PromptEngineerAgent(provider).run(brief, shots, rag, mv_context=mv_context)
 
-    _notify(progress, "design", "制作設計データを統合しています", 10, 11)
+    current += 1
+    _notify(progress, "design", "制作設計データを統合しています", current, total)
     design = ProductionDesign(
         brief=brief,
         script=script.items,
@@ -192,8 +252,10 @@ def _run_common(
         suno_params=suno_params,
         song_sections=song_sections,
         mv_visual_plan=mv_visual_plan,
+        creation_mode=creation_mode,
     )
-    _notify(progress, "critic", "継続性評価エージェントで矛盾を確認しています", 11, 11)
+    current += 1
+    _notify(progress, "critic", "継続性評価エージェントで矛盾を確認しています", current, total)
     report = ContinuityCriticAgent(provider).run(design, rag)
     design.continuity_issues = report.issues
     if report.issues:

@@ -4,12 +4,27 @@
 <div class="grid">
   <section class="panel">
     <h1>新規プロジェクト</h1>
-    <p class="muted">アイデアを入力すると、エージェントが制作設計、ショット、プロンプト、参照画像ワークフローを順番に生成します。</p>
+    <p class="muted">アイデアから曲と静止画MVを設計するか、完成済みの歌詞から静止画MVだけを設計できます。</p>
     <form method="post" action="/projects/generate">
       <label>プロジェクト名</label>
       <input name="project" value="portfolio-demo" required>
-      <label>アイデア</label>
-      <textarea name="idea" required>雨の東京路地で、孤独な配達ロボットが音楽を見つける</textarea>
+      <label>制作モード</label>
+      <select name="creation_mode" id="creation_mode">
+        <option value="idea_to_mv">アイデアから曲・画像・動画を作る</option>
+        <option value="lyrics_to_mv">入力済み歌詞から画像・動画を作る</option>
+      </select>
+      <div data-creation-mode="idea_to_mv">
+        <label>アイデア</label>
+        <textarea name="idea">雨の東京路地で、孤独な配達ロボットが音楽を見つける</textarea>
+        <p class="help">歌詞とSuno styleを生成し、曲に合わせた静止画MVを設計します。</p>
+      </div>
+      <div data-creation-mode="lyrics_to_mv" hidden>
+        <label>歌詞</label>
+        <textarea name="lyrics" style="min-height:240px" placeholder="[Verse 1]&#10;入力済みの歌詞&#10;&#10;[Chorus]&#10;サビの歌詞&#10;&#10;[End]"></textarea>
+        <label>Suno Style（任意）</label>
+        <input name="music_style" placeholder="例: J-Pop, mid-tempo, piano and synth, emotional vocals">
+        <p class="help">入力歌詞は書き直さず、そのまま曲構成分析と静止画MV設計に使います。</p>
+      </div>
       <label>想定視聴者</label>
       <select name="audience">
         {% for option in audience_options %}
@@ -24,12 +39,8 @@
         {% endfor %}
       </select>
       <label>出力モード</label>
-      <select name="output_mode">
-        {% for option in output_mode_options %}
-          <option value="{{ option.value }}">{{ option.label }}</option>
-        {% endfor %}
-      </select>
-      <p class="help">Remotionモードでは、静止画をつなげて字幕と読み上げ音声を付ける前提の脚本・ショット設計に寄せます。</p>
+      <input value="Music Video (MV)" disabled>
+      <p class="help">静止画、BGM、歌詞字幕を組み合わせるMV専用モードです。</p>
       <div class="inline-fields">
         <div>
           <label>ジャンル</label>
@@ -94,8 +105,6 @@
             <option value="mock">mock</option>
             <option value="gemini">gemini</option>
             <option value="claude">claude</option>
-            <option value="openai">openai（将来対応枠）</option>
-            <option value="minimax">minimax（将来対応枠）</option>
           </select>
         </div>
         <div>
@@ -107,7 +116,7 @@
           </select>
         </div>
       </div>
-      <p class="help">現時点で確実に動くのは mock です。他モデルは今後の接続先を想定した選択肢です。</p>
+      <p class="help">mock はAPI不要です。歌詞や映像設計を実生成する場合は gemini または Claude Code CLI を使います。</p>
       <p><button type="submit">制作設計を生成</button></p>
     </form>
   </section>
@@ -129,6 +138,14 @@
 <script>
   document.addEventListener("DOMContentLoaded", () => {
     const durationInput = document.querySelector("#duration_seconds");
+    const creationMode = document.querySelector("#creation_mode");
+    const updateCreationMode = () => {
+      document.querySelectorAll("[data-creation-mode]").forEach((panel) => {
+        panel.hidden = panel.dataset.creationMode !== creationMode.value;
+      });
+    };
+    creationMode.addEventListener("change", updateCreationMode);
+    updateCreationMode();
     document.querySelectorAll("[data-duration]").forEach((button) => {
       button.addEventListener("click", () => {
         durationInput.value = button.dataset.duration;

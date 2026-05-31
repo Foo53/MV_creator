@@ -71,6 +71,12 @@ class ShotPlan(BaseModel):
     audio: str
     referenced_memory: list[str] = Field(default_factory=list)
     narration_caption: str = Field(default="", description="MV字幕用テキスト")
+    still_image_intent: str = Field(default="", description="静止画MVでこの一枚が担う役割")
+    composition: str = Field(default="", description="一枚絵としての構図と余白")
+    focal_point: str = Field(default="center", description="パン・ズームで注目させる被写体や位置")
+    still_duration_seconds: float = Field(default=5.0, gt=0, description="静止画MVでこの一枚を表示する秒数")
+    transition_type: Literal["crossfade", "cut"] = Field(default="crossfade", description="次の静止画への切り替え")
+    transition_duration_seconds: float = Field(default=0.6, ge=0, le=3, description="クロスフェード秒数")
 
 
 class ImagePrompt(BaseModel):
@@ -142,6 +148,7 @@ class ProductionDesign(BaseModel):
     suno_params: SunoMusicParams | None = Field(default=None, description="MVモード時のSuno音楽生成パラメータ")
     song_sections: list[SongSection] = Field(default_factory=list, description="MVモードで歌詞を曲構成に分解した結果")
     mv_visual_plan: MVVisualPlan | None = Field(default=None, description="MVモードで曲から導いた映像設計方針")
+    creation_mode: Literal["idea_to_mv", "lyrics_to_mv"] = Field(default="idea_to_mv", description="MV制作の入力モード")
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -154,6 +161,17 @@ class ProjectPaths(BaseModel):
 
     @classmethod
     def for_project(cls, project: str, output_root: Path = Path("outputs")) -> "ProjectPaths":
+        project_path = Path(project)
+        if (
+            not project
+            or project in {".", ".."}
+            or "/" in project
+            or "\\" in project
+            or project_path.name != project
+            or project_path.is_absolute()
+            or project_path.drive
+        ):
+            raise ValueError("プロジェクト名にはディレクトリ区切り文字や相対パスを使用できません。")
         root = output_root / project
         return cls(
             root=root,

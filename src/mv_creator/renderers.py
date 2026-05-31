@@ -29,6 +29,7 @@ def render_design(design: ProductionDesign) -> str:
         f"- 映像スタイル: {design.brief.style}",
         f"- 想定尺: {design.brief.duration_seconds}秒",
         f"- 出力モード: {design.brief.output_mode}",
+        f"- 制作モード: {design.creation_mode}",
     ]
     if design.brief.genre:
         lines.append(f"- ジャンル: {design.brief.genre}")
@@ -123,6 +124,11 @@ def render_storyboard(design: ProductionDesign) -> str:
                 f"- カメラ: {shot.camera}",
                 f"- レンズ: {shot.lens}",
                 f"- 動き: {shot.motion}",
+                f"- 静止画の役割: {shot.still_image_intent}",
+                f"- 構図: {shot.composition}",
+                f"- 注視点: {shot.focal_point}",
+                f"- 表示尺: {shot.still_duration_seconds}秒",
+                f"- トランジション: {shot.transition_type} ({shot.transition_duration_seconds}秒)",
                 f"- First frame: {shot.first_frame}",
                 f"- Last frame: {shot.last_frame}",
                 f"- 照明: {shot.lighting}",

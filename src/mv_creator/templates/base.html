@@ -341,10 +341,33 @@
         });
       };
 
+      const initProviderModelPairs = () => {
+        document.querySelectorAll("select[name='provider']").forEach((providerSelect) => {
+          const form = providerSelect.closest("form");
+          const modelSelect = form && form.querySelector("select[name='model']");
+          if (!modelSelect) return;
+          const updateModels = () => {
+            let firstEnabled = null;
+            Array.from(modelSelect.options).forEach((option) => {
+              const enabled = option.dataset.provider === providerSelect.value;
+              option.hidden = !enabled;
+              option.disabled = !enabled;
+              if (enabled && !firstEnabled) firstEnabled = option;
+            });
+            if (modelSelect.selectedOptions[0]?.disabled && firstEnabled) {
+              modelSelect.value = firstEnabled.value;
+            }
+          };
+          providerSelect.addEventListener("change", updateModels);
+          updateModels();
+        });
+      };
+
       document.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll("img[data-draggable-asset='true']").forEach(makeImageDraggable);
         initCopyButtons();
         initDropZones();
+        initProviderModelPairs();
       });
       window.vimaxMakeImageDraggable = makeImageDraggable;
       window.vimaxInitCopyButtons = initCopyButtons;

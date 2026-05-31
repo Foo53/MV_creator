@@ -3,16 +3,18 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass, field
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from PIL import Image, UnidentifiedImageError
 
 from mv_creator.models import ProductionDesign, ProjectPaths, SunoMusicParams
-from mv_creator.pipeline import rebuild_mv_visual_design, run_idea_pipeline
+from mv_creator.pipeline import rebuild_mv_visual_design, run_idea_pipeline, run_lyrics_pipeline
 from mv_creator.providers import ProviderError, make_provider
 from mv_creator.timeline import build_timeline_manifest, render_timeline_with_remotion, write_timeline_manifest
 
@@ -78,9 +80,7 @@ MODEL_OPTIONS = [
     {"value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "provider": "gemini"},
     {"value": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "provider": "gemini"},
     {"value": "gemini-2.0-flash", "label": "Gemini 2.0 Flash", "provider": "gemini"},
-    {"value": "claude-sonnet-4.5", "label": "Claude Sonnet 4.5（将来対応枠）", "provider": "claude"},
-    {"value": "openai-gpt-5.1", "label": "OpenAI GPT-5.1（将来対応枠）", "provider": "openai"},
-    {"value": "minimax-m2.7", "label": "MiniMax M2.7（将来対応枠）", "provider": "minimax"},
+    {"value": "claude-cli", "label": "Claude Code CLI", "provider": "claude"},
 ]
 
 
@@ -157,6 +157,20 @@ def _load_design(paths: ProjectPaths) -> ProductionDesign:
     return ProductionDesign.model_validate_json(paths.design_json.read_text(encoding="utf-8"))
 
 
+def _shot_image_path(paths: ProjectPaths, shot_id: str, index: int) -> Path | None:
+    manual = paths.images / "manual" / f"{shot_id}.png"
+    if manual.exists():
+        return manual
+    generated = paths.images / f"shot_{index + 1:03d}.png"
+    return generated if generated.exists() else None
+
+
+def _project_counts(paths: ProjectPaths, design: ProductionDesign) -> dict[str, int]:
+    shots = sorted(design.shots, key=lambda item: item.order)
+    generated = sum(1 for index, shot in enumerate(shots) if _shot_image_path(paths, shot.shot_id, index))
+    return {"total": len(design.shots), "generated": generated, "remaining": len(design.shots) - generated}
+
+
 def create_app(output_root: Path = Path("outputs")) -> FastAPI:
     app = FastAPI(title="MV Creator Web UI")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -186,7 +200,10 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
     @app.post("/projects/generate")
     def generate_project(
         project: str = Form(...),
-        idea: str = Form(...),
+        creation_mode: str = Form("idea_to_mv"),
+        idea: str = Form(""),
+        lyrics: str = Form(""),
+        music_style: str = Form(""),
         audience: str = Form("general"),
         style: str = Form("cinematic"),
         duration_seconds: int = Form(60),
@@ -198,13 +215,24 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
         provider: str = Form("mock"),
         model: str = Form("gemini-2.5-flash"),
     ) -> RedirectResponse:
+        if creation_mode == "lyrics_to_mv":
+            if not lyrics.strip():
+                raise HTTPException(status_code=400, detail="歌詞入力モードでは歌詞が必要です。")
+        elif creation_mode == "idea_to_mv":
+            if not idea.strip():
+                raise HTTPException(status_code=400, detail="アイデア入力モードではアイデアが必要です。")
+        else:
+            raise HTTPException(status_code=400, detail="未知の制作モードです。")
         job = jobs.create(project)
         thread = threading.Thread(
             target=_run_generation_job,
             kwargs={
                 "job_id": job.id,
                 "project": project,
+                "creation_mode": creation_mode,
                 "idea": idea,
+                "lyrics": lyrics,
+                "music_style": music_style,
                 "audience": audience,
                 "style": style,
                 "duration_seconds": duration_seconds,
@@ -255,11 +283,50 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
             {
                 "project": project,
                 "design": design,
+                "counts": _project_counts(paths, design),
                 "timeline_exists": timeline_path.exists(),
                 "video_exists": video_path.exists(),
                 "is_mv": True,
             },
         )
+
+    @app.get("/projects/{project}/shots", response_class=HTMLResponse)
+    def shots_page(request: Request, project: str) -> HTMLResponse:
+        paths = ProjectPaths.for_project(project, output_root)
+        design = _load_design(paths)
+        prompt_by_shot = {prompt.shot_id: prompt for prompt in design.image_prompts}
+        shot_rows = []
+        for index, shot in enumerate(sorted(design.shots, key=lambda item: item.order)):
+            image_path = _shot_image_path(paths, shot.shot_id, index)
+            shot_rows.append(
+                {
+                    "shot": shot,
+                    "prompt": prompt_by_shot.get(shot.shot_id),
+                    "image_url": f"/files/{project}/{image_path.relative_to(paths.root).as_posix()}" if image_path else None,
+                }
+            )
+        return templates.TemplateResponse(
+            request,
+            "shots.html",
+            {"project": project, "shot_rows": shot_rows, "counts": _project_counts(paths, design)},
+        )
+
+    @app.post("/projects/{project}/shots/{shot_id}/upload")
+    async def upload_shot_image(project: str, shot_id: str, file: UploadFile = File(...)) -> RedirectResponse:
+        paths = ProjectPaths.for_project(project, output_root)
+        design = _load_design(paths)
+        if shot_id not in {shot.shot_id for shot in design.shots}:
+            raise HTTPException(status_code=404, detail="指定されたショットは存在しません。")
+        data = await file.read()
+        try:
+            with Image.open(BytesIO(data)) as image:
+                image.load()
+                target = paths.images / "manual" / f"{shot_id}.png"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                image.convert("RGB").save(target, format="PNG")
+        except (UnidentifiedImageError, OSError):
+            raise HTTPException(status_code=400, detail="画像ファイルを読み込めませんでした。")
+        return RedirectResponse(f"/projects/{project}/shots#{shot_id}", status_code=303)
 
     @app.post("/projects/{project}/timeline")
     def create_timeline(project: str) -> RedirectResponse:
@@ -320,7 +387,7 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
         message = str(form.get("message", ""))
         provider_name = str(form.get("provider", "mock"))
         model = str(form.get("model", "gemini-2.5-flash"))
-        provider = make_provider(provider_name, model, "gemini-2.5-flash-image")
+        provider = make_provider(provider_name, model)
         existing_audio_path = design.suno_params.audio_path if design.suno_params else None
         suno_params = MusicAgent(provider).run(design.brief, message=message)
         suno_params.audio_path = existing_audio_path
@@ -355,7 +422,9 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
         music_dir = paths.root / "music"
         music_dir.mkdir(parents=True, exist_ok=True)
         data = await file.read()
-        ext = Path(file.filename or "audio.mp3").suffix or ".mp3"
+        ext = Path(file.filename or "audio.mp3").suffix.lower() or ".mp3"
+        if ext not in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}:
+            raise HTTPException(status_code=400, detail="対応していない音楽ファイル形式です。")
         audio_filename = f"bgm{ext}"
         (music_dir / audio_filename).write_bytes(data)
         if design.suno_params:
@@ -372,7 +441,10 @@ def _run_generation_job(
     *,
     job_id: str,
     project: str,
+    creation_mode: str,
     idea: str,
+    lyrics: str,
+    music_style: str,
     audience: str,
     style: str,
     duration_seconds: int,
@@ -385,35 +457,39 @@ def _run_generation_job(
     model: str,
     output_root: Path,
 ) -> None:
-    jobs.update(job_id, status="running", message="制作設計を開始しました", current=0, total=9)
+    total = 10 if creation_mode == "lyrics_to_mv" else 11
+    jobs.update(job_id, status="running", message="制作設計を開始しました", current=0, total=total)
 
     def progress(stage: str, message: str, current: int, total: int) -> None:
         jobs.update(job_id, stage=stage, message=message, current=current, total=total)
 
     try:
-        provider = make_provider(provider_name, model, "gemini-2.5-flash-image")
-        run_idea_pipeline(
-            idea=idea,
-            project=project,
-            provider=provider,
-            output_root=output_root,
-            audience=audience,
-            style=style,
-            duration_seconds=duration_seconds,
-            genre=genre,
-            mood=mood,
-            color_tone=color_tone,
-            narration_style=narration_style,
-            target_platform=target_platform,
-            progress=progress,
-        )
+        provider = make_provider(provider_name, model)
+        common_args = {
+            "project": project,
+            "provider": provider,
+            "output_root": output_root,
+            "audience": audience,
+            "style": style,
+            "duration_seconds": duration_seconds,
+            "genre": genre,
+            "mood": mood,
+            "color_tone": color_tone,
+            "narration_style": narration_style,
+            "target_platform": target_platform,
+            "progress": progress,
+        }
+        if creation_mode == "lyrics_to_mv":
+            run_lyrics_pipeline(lyrics=lyrics, music_style=music_style, **common_args)
+        else:
+            run_idea_pipeline(idea=idea, **common_args)
         jobs.update(
             job_id,
             status="completed",
             stage="completed",
             message="制作設計が完了しました",
-            current=9,
-            total=9,
+            current=total,
+            total=total,
             result_url=f"/projects/{project}",
         )
     except ProviderError as exc:
@@ -436,7 +512,7 @@ def _run_mv_rebuild_job(
         jobs.update(job_id, stage=stage, message=message, current=current, total=total)
 
     try:
-        provider = make_provider(provider_name, model, "gemini-2.5-flash-image")
+        provider = make_provider(provider_name, model)
         rebuild_mv_visual_design(
             project=project,
             provider=provider,

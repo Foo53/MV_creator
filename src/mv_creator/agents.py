@@ -16,8 +16,13 @@ class Agent:
 class IdeationAgent(Agent):
     name = "企画整理エージェント"
 
-    def run(self, user_input: str, *, audience: str, style: str, duration_seconds: int, output_mode: str = "mv", genre: str = "", mood: str = "", color_tone: str = "", narration_style: str = "", target_platform: str = "") -> ProductionBrief:
+    def run(self, user_input: str, *, audience: str, style: str, duration_seconds: int, output_mode: str = "mv", genre: str = "", mood: str = "", color_tone: str = "", narration_style: str = "", target_platform: str = "", source_type: str = "idea") -> ProductionBrief:
         mode_instruction = output_mode_instruction(output_mode)
+        source_instruction = (
+            "入力は完成済みの歌詞です。歌詞を書き直さず、歌詞の物語、感情、モチーフから静止画MVの制作ブリーフを抽出してください。"
+            if source_type == "lyrics"
+            else "入力はMVのアイデアです。静止画MVの制作ブリーフへ整理してください。"
+        )
         creative_context = ""
         if genre:
             creative_context += f"\nジャンル: {genre}"
@@ -34,6 +39,7 @@ class IdeationAgent(Agent):
 ユーザーの入力を、短編映像の制作設計に使えるProductionBriefへ変換してください。
 出力は必ず指定されたJSON Schemaに従ってください。
 {mode_instruction}
+{source_instruction}
 
 USER_INPUT: {user_input}
 想定視聴者: {audience}
@@ -141,8 +147,17 @@ class ShotDirectorAgent(Agent):
 例: 「雨の路地に光る水たまり / 小さなロボットが立ち止まる」
 """
         prompt = f"""
-あなたはショット設計エージェントです。
-各シーンをショット単位に分け、カメラ、レンズ、動き、first frame、last frame、照明、音を具体化してください。
+あなたは静止画ミュージックビデオ専用のショット設計エージェントです。
+各シーンを、ChatGPT画像生成で作る一枚絵の単位へ分けてください。動画生成用の連続動作ではなく、曲の感情と物語が一目で伝わる決定的な瞬間を選んでください。
+各ショットでは、照明と音に加えて次を具体化してください。
+- still_image_intent: この一枚がMV全体で担う役割
+- composition: 被写体の位置、前景・中景・背景、字幕を重ねるための余白
+- focal_point: ゆるいパン・ズームで視線を誘導する対象と画面内の位置
+- still_duration_seconds: 曲構成に合わせた表示尺。全ショットの合計は制作ブリーフの想定尺に近づける
+- transition_type: 基本はcrossfade。強いビートや場面転換だけcut
+- transition_duration_seconds: crossfadeは0.4〜1.0秒程度、cutは0秒
+motion は slow zoom in, slow zoom out, slow pan left, slow pan right, slow pan up, slow pan down, hold を中心にしてください。
+first_frame と last_frame は動画内の動作ではなく、静止画に加える穏やかなパン・ズームの開始構図と終了構図として書いてください。
 RAG参照情報に含まれるキャラクターや世界観の一貫性を必ず守ってください。
 {mode_instruction}
 {caption_instruction}
@@ -175,9 +190,11 @@ class PromptEngineerAgent(Agent):
         context = rag.context_block(" ".join(shot.description for shot in shots.items), used_by=self.name, limit=10)
         mode_instruction = output_mode_instruction(brief.output_mode)
         prompt = f"""
-あなたはプロンプト設計エージェントです。
-ショット設計から、画像生成プロンプトと動画生成プロンプトを作成してください。
-画像プロンプトは視覚要素を具体的に、動画プロンプトは時間変化とカメラ移動を具体的に書いてください。
+あなたは静止画ミュージックビデオ専用のプロンプト設計エージェントです。
+ショット設計から、ChatGPT画像生成へ貼り付ける画像プロンプトと、Remotionで静止画を編集するための編集メモを作成してください。
+画像プロンプトは、一枚絵として成立する決定的な瞬間を具体化してください。被写体、構図、前景・中景・背景、照明、色、焦点、字幕用の余白、画像全体の統一感を明記してください。
+連続動作、動画生成、複数カット、分割画面、絵コンテ、コラージュを要求しないでください。画像内に文字、字幕、ロゴ、透かしを描かせないでください。
+video_prompts は動画生成モデル向けではありません。Remotionで行うパン・ズーム、ホールド、クロスフェード、字幕表示の編集指示を書いてください。
 画像生成モデルでの安定性を高めるため、image_prompts.prompt と image_prompts.negative_prompt は英語で書いてください。
 入力情報が日本語の場合も、意味を保ったまま英語の画像生成プロンプトに変換してください。
 {mode_instruction}
@@ -363,11 +380,12 @@ def build_mv_context(
 def output_mode_instruction(output_mode: str) -> str:
     return """
 出力モード: Music Video (MV) mode.
-このモードではSunoで生成した音楽に合わせて、静止画をRemotionでつなぎ、歌詞字幕を重ねるミュージックビデオを制作します。
+このモードではSunoで生成した音楽に合わせて、ChatGPTで生成した一枚絵をRemotionでつなぎ、歌詞字幕を重ねる静止画ミュージックビデオを制作します。
 - ショットは楽曲の各セクション（Intro, Verse, Chorus, Bridge, Outro）に対応するように設計してください。
-- 各ショットは1枚絵として成立し、ゆるいズームやパンで楽曲のテンポ感に合わせてください。
+- 各ショットは単独の1枚絵として成立させてください。複数カット、分割画面、連続動作を1枚に詰め込まないでください。
+- 被写体の注視点、前景・中景・背景、字幕を置く余白を設計し、ゆるいズームやパンで楽曲のテンポ感に合わせてください。
 - motion は楽曲の雰囲気に合うよう slow zoom, slow pan, hold を中心にしてください。
 - audio には楽曲のセクション名と雰囲気を含めてください（例: 「Verse 1: 静かで神秘的な電子音」）。
-- video_prompts はRemotionでの編集指示として、楽曲との同期を意識した内容にしてください。
+- video_prompts は動画生成指示ではなく、Remotionでの静止画編集指示として、楽曲との同期を意識した内容にしてください。
 - image_prompts は楽曲の感情やビジュアルテーマを反映した構図にしてください。
 """

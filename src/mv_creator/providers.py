@@ -242,16 +242,25 @@ def _mock_payload(name: str, prompt: str) -> dict:
         }
     if name == "PromptBundle":
         shots = _mock_payload("ShotList", prompt)["items"]
+        aspect_ratio = _aspect_ratio_from_prompt(prompt)
         mv_note = (
-            "MV mode: use this still as a music video scene with slow Ken Burns motion, lyrics subtitle overlay, and a soft crossfade synced to the music."
+            "Still-image MV edit: apply subtle Ken Burns motion toward the focal point, preserve crop-safe subtitle space, and use a soft crossfade synced to the music."
         )
         return {
             "image_prompts": [
                 {
                     "shot_id": shot["shot_id"],
-                    "prompt": f"{shot['description']}, {shot['lighting']}, cinematic anime, rain reflections, small white delivery robot with yellow rain poncho",
-                    "negative_prompt": "inconsistent character design, extra robots, blurry face screen",
-                    "aspect_ratio": "16:9",
+                    "prompt": (
+                        f"Single cinematic still image, {shot['description']}. {shot['composition']}. "
+                        f"Primary focal point: {shot['focal_point']}. {shot['lighting']}, cinematic anime, "
+                        "layered foreground midground and background, rain reflections, "
+                        "small white delivery robot with yellow rain poncho, leave clean negative space for lyrics subtitles"
+                    ),
+                    "negative_prompt": (
+                        "multiple panels, split screen, storyboard, collage, sequence of actions, motion blur, "
+                        "embedded text, subtitles, logo, watermark, inconsistent character design, extra robots, blurry face screen"
+                    ),
+                    "aspect_ratio": aspect_ratio,
                     "style_tags": ["cinematic anime", "rain", "neon"],
                 }
                 for shot in shots
@@ -259,9 +268,12 @@ def _mock_payload(name: str, prompt: str) -> dict:
             "video_prompts": [
                 {
                     "shot_id": shot["shot_id"],
-                    "prompt": f"{shot['description']} Start: {shot['first_frame']} End: {shot['last_frame']}. {mv_note}".strip(),
-                    "duration_seconds": 5,
-                    "camera_motion": "slow zoom for MV still-image assembly",
+                    "prompt": (
+                        f"{shot['still_image_intent']} Start crop: {shot['first_frame']} "
+                        f"End crop: {shot['last_frame']}. {mv_note}"
+                    ).strip(),
+                    "duration_seconds": shot["still_duration_seconds"],
+                    "camera_motion": shot["motion"],
                     "temporal_notes": (
                         "MV mode: lyrics subtitle overlay, preserve character continuity, sync visual mood to music sections."
                     ),
@@ -355,6 +367,32 @@ def _shot(shot_id: str, scene_id: str, order: int, description: str, camera: str
         "shot_003": "旋律が路地を染めていく / ネオンが優しく脈打つ",
     }
     caption = mv_captions.get(shot_id, "")
+    still_details = {
+        "shot_001": {
+            "still_image_intent": "Introの孤独な世界観を一枚で提示する。",
+            "composition": "Miloを左下の三分割点に置き、手前に濡れた路面、奥にネオンの路地、下部中央に字幕用の暗い余白を残す。",
+            "focal_point": "Miloの青いステータスライト、画面左下",
+            "still_duration_seconds": 8,
+            "transition_type": "crossfade",
+            "transition_duration_seconds": 0.8,
+        },
+        "shot_002": {
+            "still_image_intent": "Verseでオルゴールとの出会いを親密な一枚として見せる。",
+            "composition": "Miloと琥珀色のオルゴールを中央寄りの近景に置き、背景の自販機を柔らかくぼかし、下部に字幕用余白を残す。",
+            "focal_point": "琥珀色に光るオルゴール、画面中央",
+            "still_duration_seconds": 20,
+            "transition_type": "crossfade",
+            "transition_duration_seconds": 0.7,
+        },
+        "shot_003": {
+            "still_image_intent": "ChorusからOutroの高揚と余韻を、路地全体が応答する一枚で締める。",
+            "composition": "Miloを中央下部、光る路地を奥へ広げ、雨粒とネオンの反射で視線を奥へ導き、字幕用余白を下端に確保する。",
+            "focal_point": "Miloと路地奥へ広がる青と琥珀の光、画面中央",
+            "still_duration_seconds": 32,
+            "transition_type": "crossfade",
+            "transition_duration_seconds": 0.8,
+        },
+    }
     return {
         "shot_id": shot_id,
         "scene_id": scene_id,
@@ -369,4 +407,14 @@ def _shot(shot_id: str, scene_id: str, order: int, description: str, camera: str
         "audio": "雨音と遠いオルゴール",
         "referenced_memory": ["character:char_robot"],
         "narration_caption": caption,
+        **still_details[shot_id],
     }
+
+
+def _aspect_ratio_from_prompt(prompt: str) -> str:
+    compact = prompt.replace(" ", "")
+    if '"target_platform":"tiktok"' in compact or '"target_platform":"instagram_reel"' in compact:
+        return "9:16"
+    if '"target_platform":"instagram_square"' in compact:
+        return "1:1"
+    return "16:9"

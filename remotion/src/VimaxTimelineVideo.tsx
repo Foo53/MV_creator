@@ -1,5 +1,5 @@
 import React from 'react';
-import {AbsoluteFill, Audio, Series} from 'remotion';
+import {AbsoluteFill, Audio, Sequence} from 'remotion';
 import {ShotScene} from './ShotScene';
 
 export type TimelineShot = {
@@ -13,7 +13,12 @@ export type TimelineShot = {
   narration: string;
   motion: {
     type: string;
-    strength: number;
+    start_scale: number;
+    end_scale: number;
+    start_x_percent: number;
+    end_x_percent: number;
+    start_y_percent: number;
+    end_y_percent: number;
   };
   transition: {
     type: string;
@@ -43,17 +48,32 @@ export const VimaxTimelineVideo: React.FC<TimelineManifest> = ({title, shots, fp
     );
   }
   const isMV = output_mode === 'mv';
+  let elapsedFrames = 0;
 
   return (
     <AbsoluteFill style={{backgroundColor: '#05070a'}}>
       {audio?.bgm ? <Audio src={audio.bgm} /> : null}
-      <Series>
-        {shots.map((shot) => (
-          <Series.Sequence key={shot.shot_id} durationInFrames={Math.max(1, Math.ceil(shot.duration_seconds * fps))}>
-            <ShotScene shot={shot} title={title} isMV={isMV} lyricsLines={lyrics_timeline?.[shot.shot_id] || []} />
-          </Series.Sequence>
-        ))}
-      </Series>
+      {shots.map((shot, index) => {
+        const shotFrames = Math.max(1, Math.ceil(shot.duration_seconds * fps));
+        const requestedTransitionFrames = shot.transition.type === 'crossfade'
+          ? Math.max(0, Math.ceil(shot.transition.duration_seconds * fps))
+          : 0;
+        const transitionInFrames = index === 0 ? 0 : Math.min(requestedTransitionFrames, shotFrames - 1, elapsedFrames);
+        const from = Math.max(0, elapsedFrames - transitionInFrames);
+        const durationInFrames = shotFrames + transitionInFrames;
+        elapsedFrames += shotFrames;
+        return (
+          <Sequence key={shot.shot_id} from={from} durationInFrames={durationInFrames}>
+            <ShotScene
+              shot={shot}
+              isMV={isMV}
+              lyricsLines={lyrics_timeline?.[shot.shot_id] || []}
+              transitionInFrames={transitionInFrames}
+              isLast={index === shots.length - 1}
+            />
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };
