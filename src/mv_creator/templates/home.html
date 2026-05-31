@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}ViMax Lite - 新規制作{% endblock %}
+{% block content %}
+<div class="grid">
+  <section class="panel">
+    <h1>新規プロジェクト</h1>
+    <p class="muted">アイデアを入力すると、エージェントが制作設計、ショット、プロンプト、参照画像ワークフローを順番に生成します。</p>
+    <form method="post" action="/projects/generate">
+      <label>プロジェクト名</label>
+      <input name="project" value="portfolio-demo" required>
+      <label>アイデア</label>
+      <textarea name="idea" required>雨の東京路地で、孤独な配達ロボットが音楽を見つける</textarea>
+      <label>想定視聴者</label>
+      <select name="audience">
+        {% for option in audience_options %}
+          <option value="{{ option.value }}">{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      <p class="help">視聴者を選ぶと、脚本の密度、言葉遣い、画面のテンポを調整しやすくなります。</p>
+      <label>映像スタイル</label>
+      <select name="style">
+        {% for option in style_options %}
+          <option value="{{ option.value }}">{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      <label>出力モード</label>
+      <select name="output_mode">
+        {% for option in output_mode_options %}
+          <option value="{{ option.value }}">{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      <p class="help">Remotionモードでは、静止画をつなげて字幕と読み上げ音声を付ける前提の脚本・ショット設計に寄せます。</p>
+      <div class="inline-fields">
+        <div>
+          <label>ジャンル</label>
+          <select name="genre">
+            {% for option in genre_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>雰囲気</label>
+          <select name="mood">
+            {% for option in mood_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="inline-fields">
+        <div>
+          <label>色調</label>
+          <select name="color_tone">
+            {% for option in color_tone_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>字幕の文体</label>
+          <select name="narration_style">
+            {% for option in narration_style_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <label>配信プラットフォーム</label>
+      <select name="target_platform">
+        {% for option in target_platform_options %}
+          <option value="{{ option.value }}">{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      <div class="inline-fields">
+        <div>
+          <label>想定尺（秒）</label>
+          <input id="duration_seconds" name="duration_seconds" type="number" value="60" min="1" step="1" inputmode="numeric">
+          <p class="help">1秒単位で直接入力できます。</p>
+        </div>
+        <div>
+          <label>尺プリセット</label>
+          <div class="preset-row" aria-label="想定尺プリセット">
+            {% for seconds in duration_presets %}
+              <button class="button ghost" type="button" data-duration="{{ seconds }}">{{ seconds }}秒</button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="inline-fields">
+        <div>
+          <label>Provider</label>
+          <select name="provider">
+            <option value="mock">mock</option>
+            <option value="gemini">gemini</option>
+            <option value="claude">claude</option>
+            <option value="openai">openai（将来対応枠）</option>
+            <option value="minimax">minimax（将来対応枠）</option>
+          </select>
+        </div>
+        <div>
+          <label>Model</label>
+          <select name="model">
+            {% for option in model_options %}
+              <option value="{{ option.value }}" data-provider="{{ option.provider }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <p class="help">現時点で確実に動くのは mock です。他モデルは今後の接続先を想定した選択肢です。</p>
+      <p><button type="submit">制作設計を生成</button></p>
+    </form>
+  </section>
+  <section class="panel">
+    <h2>既存プロジェクト</h2>
+    {% if projects %}
+      <ul>
+      {% for project in projects %}
+        <li><a href="/projects/{{ project }}">{{ project }}</a></li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">まだ生成済みプロジェクトはありません。</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+{% block head %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const durationInput = document.querySelector("#duration_seconds");
+    document.querySelectorAll("[data-duration]").forEach((button) => {
+      button.addEventListener("click", () => {
+        durationInput.value = button.dataset.duration;
+        durationInput.focus();
+      });
+    });
+  });
+</script>
+{% endblock %}

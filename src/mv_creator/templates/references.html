@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}参照画像 - {{ project }}{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="toolbar">
+    <h1>キャラクター参照シート</h1>
+    <a class="button secondary" href="/projects/{{ project }}">戻る</a>
+    <a class="button secondary" href="/projects/{{ project }}/shots">ショット生成へ</a>
+  </div>
+  <div class="inline-fields">
+    <div>
+      <label for="reference-image-backend">画像生成モデル</label>
+      <select id="reference-image-backend" class="image-backend-select">
+        {% for backend in image_backend_options %}
+          <option value="{{ backend.value }}" {% if not backend.available %}disabled{% endif %}>{{ backend.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div data-image-backend-panel="manual_chatgpt">
+    <p class="help">参照画像を添付してChatGPTで生成し、完成画像を保存します。</p>
+  </div>
+  <div data-image-backend-panel="sdxl_ip_adapter" hidden>
+    {% if sdxl_status.available %}
+      <span class="badge">{{ sdxl_status.device }}</span>
+    {% else %}
+      <span class="badge warn">SDXL未準備</span>
+    {% endif %}
+    <form method="post" action="/projects/{{ project }}/references/generate-sequential" style="display:inline; margin-left:8px">
+      <input type="hidden" name="image_backend" value="sdxl_ip_adapter">
+      <button type="submit" class="button secondary" {% if not sdxl_status.available %}disabled title="SDXL依存関係の導入後に利用できます"{% endif %}>未保存分の候補を順次生成</button>
+    </form>
+    <p class="help">{{ sdxl_status.message }}</p>
+    <p class="help">一括順次生成では、各キャラクターのfront候補を先に生成し、その候補をside / back / detailの参照条件に利用します。生成後の正式採用は個別に確認して行ってください。</p>
+  </div>
+  <p class="muted">一括保存では、各枠に画像を選択してからページ下部の「選択した参照画像を一括保存」を押してください。</p>
+  <p class="muted">保存済み画像は、そのままChatGPTの入力欄へドラッグ&ドロップできます。</p>
+</section>
+<form id="batch-reference-form" method="post" action="/projects/{{ project }}/references/upload-batch" enctype="multipart/form-data"></form>
+<div id="refs-list">
+{% for item in workflow.references.characters %}
+  <section class="panel">
+    <h2>{{ item.character.name }}</h2>
+    {% for prompt in item.prompts %}
+      <div class="panel" id="ref-{{ prompt.reference_id }}">
+        <div class="toolbar">
+          <h3>{{ prompt.reference_id }}</h3>
+          {% if prompt.saved %}
+            <span class="badge">保存済み</span>
+          {% else %}
+            <span class="badge warn">未保存</span>
+          {% endif %}
+        </div>
+        <div data-image-backend-panel="manual_chatgpt">
+          <label>ChatGPT貼り付け用プロンプト</label>
+          <div class="copy-row">
+            <textarea class="copybox" readonly id="ref-prompt-{{ prompt.reference_id }}">{{ prompt.prompt }}</textarea>
+            <button type="button" class="button ghost copy-btn" data-copy-target="ref-prompt-{{ prompt.reference_id }}">コピー</button>
+          </div>
+        </div>
+        <div data-image-backend-panel="sdxl_ip_adapter" hidden>
+          <form method="post" action="/projects/{{ project }}/references/{{ prompt.reference_id }}/generate" style="display:inline; margin-bottom:8px">
+            <input type="hidden" name="image_backend" value="sdxl_ip_adapter">
+            <button type="submit" class="button secondary" {% if not sdxl_status.available %}disabled title="SDXL依存関係の導入後に利用できます"{% endif %}>SDXL候補を生成</button>
+          </form>
+          <label>SDXL Positive Prompt</label>
+          <div class="copy-row">
+            <textarea class="copybox" readonly id="ref-sdxl-positive-{{ prompt.reference_id }}">{{ prompt.sdxl_prompt }}</textarea>
+            <button type="button" class="button ghost copy-btn" data-copy-target="ref-sdxl-positive-{{ prompt.reference_id }}">コピー</button>
+          </div>
+          <label>SDXL Negative Prompt</label>
+          <div class="copy-row">
+            <textarea class="copybox" readonly id="ref-sdxl-negative-{{ prompt.reference_id }}">{{ prompt.sdxl_negative_prompt }}</textarea>
+            <button type="button" class="button ghost copy-btn" data-copy-target="ref-sdxl-negative-{{ prompt.reference_id }}">コピー</button>
+          </div>
+        </div>
+        <div class="preview-grid">
+          {% if prompt.sdxl_candidate.exists %}
+          <div>
+            <label>SDXL候補画像</label>
+            <div class="image-preview">
+              <img src="/files/{{ project }}/{{ prompt.sdxl_candidate.path }}?v={{ prompt.sdxl_candidate.mtime }}" alt="{{ prompt.reference_id }} SDXL候補画像" data-draggable-asset="true" data-drag-name="{{ prompt.reference_id }}_candidate.png">
+            </div>
+            <form method="post" action="/projects/{{ project }}/references/{{ prompt.reference_id }}/adopt-sdxl">
+              <p style="margin-top:8px"><button type="submit">この候補を参照画像として採用</button></p>
+            </form>
+          </div>
+          {% endif %}
+          <div>
+            <label>保存済み画像</label>
+            <div class="image-preview">
+              {% if prompt.saved %}
+                <img src="/files/{{ project }}/{{ prompt.saved_path }}?v={{ prompt.saved_mtime }}" alt="{{ prompt.reference_id }} 保存済み画像" data-draggable-asset="true" data-drag-name="{{ prompt.reference_id }}.png">
+              {% else %}
+                未保存
+              {% endif %}
+            </div>
+          </div>
+          <div>
+            <label>選択中画像</label>
+            <div class="image-preview" data-preview-for="{{ prompt.reference_id }}">未選択</div>
+          </div>
+        </div>
+        <label>一括保存用に画像を選択</label>
+        <input form="batch-reference-form" type="file" name="reference_file__{{ prompt.reference_id }}" accept="image/*" data-preview-target="{{ prompt.reference_id }}">
+        <p class="help">保存先: `references/{{ prompt.reference_id }}.png`</p>
+        <form method="post" action="/projects/{{ project }}/references/{{ prompt.reference_id }}/upload" enctype="multipart/form-data">
+          <label>この画像だけ保存</label>
+          <input type="file" name="file" accept="image/*" required data-preview-target="{{ prompt.reference_id }}">
+          <p style="margin-top:8px"><button type="submit">この画像だけ保存</button></p>
+        </form>
+      </div>
+    {% endfor %}
+  </section>
+{% endfor %}
+</div>
+  <section class="panel">
+    <button form="batch-reference-form" type="submit">選択した参照画像を一括保存</button>
+  </section>
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const backendSelect = document.querySelector(".image-backend-select");
+    const updateBackendPanels = () => {
+      const selected = backendSelect ? backendSelect.value : "manual_chatgpt";
+      document.querySelectorAll("[data-image-backend-panel]").forEach((panel) => {
+        panel.hidden = panel.dataset.imageBackendPanel !== selected;
+      });
+    };
+    if (backendSelect) {
+      backendSelect.addEventListener("change", updateBackendPanels);
+      updateBackendPanels();
+    }
+    document.querySelectorAll("input[type='file'][data-preview-target]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const target = input.dataset.previewTarget;
+        const preview = document.querySelector(`[data-preview-for="${target}"]`);
+        if (!preview) return;
+        const file = input.files && input.files[0];
+        if (!file) {
+          preview.textContent = "未選択";
+          return;
+        }
+        const url = URL.createObjectURL(file);
+        preview.innerHTML = "";
+        const image = document.createElement("img");
+        image.src = url;
+        image.alt = file.name;
+        image.dataset.draggableAsset = "true";
+        image.dataset.dragName = file.name;
+        preview.appendChild(image);
+        if (window.vimaxMakeImageDraggable) {
+          window.vimaxMakeImageDraggable(image);
+        }
+      });
+    });
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ project }} - ViMax Lite{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="toolbar">
+    <h1>{{ design.brief.title }}</h1>
+    <a class="button secondary" href="/projects/{{ project }}/references">参照画像</a>
+    <a class="button secondary" href="/projects/{{ project }}/shots">ショット生成</a>
+    {% if is_mv %}
+    <a class="button secondary" href="/projects/{{ project }}/music">音楽設定</a>
+    {% endif %}
+  </div>
+  <p>{{ design.brief.logline }}</p>
+  <div class="grid">
+    <div class="stat"><strong>ショット数</strong><br>{{ counts.total }}</div>
+    <div class="stat"><strong>画像生成済み</strong><br>{{ counts.generated }}</div>
+    <div class="stat"><strong>残り生成枚数</strong><br>{{ counts.remaining }}</div>
+  </div>
+</section>
+<section class="panel">
+  <h2>Remotion動画</h2>
+  <p class="muted">生成済み画像をショット順につなげ、字幕付きの音なしMP4を作成します。</p>
+  <div class="toolbar">
+    <form method="post" action="/projects/{{ project }}/timeline">
+      <button type="submit">タイムラインを生成</button>
+    </form>
+    <form method="post" action="/projects/{{ project }}/render-video">
+      <button type="submit">字幕付き動画を書き出し</button>
+    </form>
+    {% if timeline_exists %}
+      <span class="badge">timeline_manifest.json 生成済み</span>
+    {% else %}
+      <span class="badge warn">タイムライン未生成</span>
+    {% endif %}
+    {% if video_exists %}
+      <a class="button secondary" href="/files/{{ project }}/videos/assembled_video.mp4">動画を開く</a>
+    {% endif %}
+  </div>
+  <p class="help">初回レンダリング前に `remotion/` ディレクトリで `npm install` が必要です。BGM、SE、読み上げ音声は今後追加予定です。</p>
+</section>
+<section class="grid">
+  <div class="panel">
+    <h2>キャラクター</h2>
+    {% for character in design.characters %}
+      <h3>{{ character.name }}</h3>
+      <p>{{ character.appearance }}</p>
+      <p class="muted">{{ character.wardrobe }}</p>
+    {% endfor %}
+  </div>
+  <div class="panel">
+    <h2>継続性指摘</h2>
+    {% if design.continuity_issues %}
+      {% for issue in design.continuity_issues %}
+        <p><span class="badge warn">{{ issue.severity }}</span> {{ issue.location }}</p>
+        <p>{{ issue.issue }}</p>
+      {% endfor %}
+    {% else %}
+      <p class="muted">指摘はありません。</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

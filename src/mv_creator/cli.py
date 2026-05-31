@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "create-mv":
-        provider = make_provider(args.provider, args.model, args.image_model)
+        provider = make_provider(args.provider, args.model)
         try:
             design = run_idea_pipeline(
                 idea=args.idea,
@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "revise":
-        provider = make_provider(args.provider, args.model, args.image_model)
+        provider = make_provider(args.provider, args.model)
         try:
             design = revise_existing_design(project=args.project, provider=provider, output_root=output_root)
         except ProviderError as exc:
@@ -98,7 +98,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "rebuild-mv-visuals":
-        provider = make_provider(args.provider, args.model, args.image_model)
+        provider = make_provider(args.provider, args.model)
         try:
             design = rebuild_mv_visual_design(project=args.project, provider=provider, output_root=output_root)
         except ProviderError as exc:
@@ -146,7 +146,6 @@ def main(argv: list[str] | None = None) -> None:
 def _add_provider_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", choices=["gemini", "claude", "mock"], default="mock")
     parser.add_argument("--model", default="gemini-2.5-flash")
-    parser.add_argument("--image-model", default="gemini-2.5-flash-image")
 
 
 def _add_common_generation_args(parser: argparse.ArgumentParser) -> None:

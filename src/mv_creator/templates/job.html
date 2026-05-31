@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}生成進捗 - {{ job.project }}{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>生成進捗: {{ job.project }}</h1>
+  <p id="message">{{ job.message }}</p>
+  <div class="progress"><div id="bar"></div></div>
+  <p><span id="percent">0%</span> <span class="muted" id="stage"></span></p>
+  <div id="result"></div>
+  <h2>ステップログ</h2>
+  <ul id="events"></ul>
+</section>
+<script>
+async function poll() {
+  const res = await fetch("/api/jobs/{{ job.id }}");
+  const job = await res.json();
+  document.getElementById("message").textContent = job.message;
+  document.getElementById("stage").textContent = job.stage + " (" + job.current + "/" + job.total + ")";
+  document.getElementById("percent").textContent = job.percent + "%";
+  document.getElementById("bar").style.width = job.percent + "%";
+  const events = document.getElementById("events");
+  events.innerHTML = "";
+  job.events.forEach((event) => {
+    const li = document.createElement("li");
+    li.textContent = event;
+    events.appendChild(li);
+  });
+  const result = document.getElementById("result");
+  if (job.status === "completed") {
+    result.innerHTML = `<p><a class="button" href="${job.result_url}">プロジェクトを開く</a></p>`;
+    if (job.stage === "completed" && job.result_url && job.result_url.includes("/projects/")) {
+      result.innerHTML += `<p class="muted" style="margin-top:8px">動画ファイルはプロジェクトページの「Remotion動画」セクションから再生できます。</p>`;
+    }
+    return;
+  }
+  if (job.status === "failed") {
+    result.innerHTML = `<p class="badge bad">失敗: ${job.error}</p>`;
+    return;
+  }
+  setTimeout(poll, 1000);
+}
+poll();
+</script>
+{% endblock %}

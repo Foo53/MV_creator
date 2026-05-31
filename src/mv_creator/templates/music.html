@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}音楽設定 - {{ project }}{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="toolbar">
+    <h1>音楽設定（Suno向けパラメータ）</h1>
+    <a class="button secondary" href="/projects/{{ project }}">戻る</a>
+  </div>
+  <p class="muted">{{ design.brief.logline }}</p>
+</section>
+
+<form method="post" action="/projects/{{ project }}/music/save">
+  <section class="panel">
+    <h2>Lyrics（メタタグ付き歌詞）</h2>
+    <p class="help">セクションタグ: [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro], [End] 等。コロン構文で演出指定可能: [Chorus: powerful vocals, full band]</p>
+    <textarea name="lyrics" rows="20" style="min-height:320px">{{ suno.lyrics }}</textarea>
+    <div class="copy-row">
+      <button type="button" class="button ghost copy-btn" data-copy-source="lyrics">歌詞をコピー</button>
+    </div>
+
+    <label>Style</label>
+    <input name="style" value="{{ suno.style }}">
+    <p class="help">カンマ区切り4-7個の記述子: [Genre], [Tempo], [Instruments], [Vocal], [Production], [Mood]（120字以内）</p>
+
+    <div class="inline-fields">
+      <div>
+        <label>Weirdness: <span id="weirdness-val">{{ suno.weirdness }}</span></label>
+        <input type="range" name="weirdness" min="0" max="100" value="{{ suno.weirdness }}" oninput="document.getElementById('weirdness-val').textContent=this.value">
+        <p class="help">創造性（50=標準、低=保守的、高=実験的）</p>
+      </div>
+      <div>
+        <label>Style Influence: <span id="style-influence-val">{{ suno.style_influence }}</span></label>
+        <input type="range" name="style_influence" min="0" max="100" value="{{ suno.style_influence }}" oninput="document.getElementById('style-influence-val').textContent=this.value">
+        <p class="help">Style指定への忠実度</p>
+      </div>
+      <div>
+        <label>Audio Influence: <span id="audio-influence-val">{{ suno.audio_influence }}</span></label>
+        <input type="range" name="audio_influence" min="0" max="100" value="{{ suno.audio_influence }}" oninput="document.getElementById('audio-influence-val').textContent=this.value">
+        <p class="help">音声アップロード参照時の影響度</p>
+      </div>
+    </div>
+    <p style="margin-top:16px"><button type="submit">パラメータを保存</button></p>
+  </section>
+</form>
+
+<section class="panel" id="audio-section">
+  <h2>音楽ファイル</h2>
+  {% if audio_url %}
+    <p class="muted">保存済みの音楽ファイル</p>
+    <audio controls src="{{ audio_url }}"></audio>
+    <p style="margin-top:12px"><a class="button secondary" href="{{ audio_url }}" download>ダウンロード</a></p>
+  {% else %}
+    <p class="muted">Sunoで生成した音楽ファイルをアップロードして保存できます。</p>
+  {% endif %}
+  <form method="post" action="/projects/{{ project }}/music/upload-audio" enctype="multipart/form-data" style="margin-top:14px">
+    <label>音楽ファイルをアップロード</label>
+    <div class="image-preview" id="audio-drop-zone" style="cursor:pointer">
+      <span id="audio-drop-label">ここに音楽ファイルをドロップ、またはクリックして選択</span>
+      <input type="file" name="file" accept="audio/*" required style="display:none" id="audio-file-input">
+    </div>
+    <p style="margin-top:8px"><button type="submit">音楽を保存</button></p>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>MV映像設計の再生成</h2>
+  <p class="muted">保存済みの歌詞・style・曲構成を上流コンテキストにして、脚本、シーン、ショット、画像プロンプトを作り直します。</p>
+  <form method="post" action="/projects/{{ project }}/music/rebuild-visuals">
+    <div class="inline-fields">
+      <div>
+        <label>Provider</label>
+        <select name="provider">
+          <option value="mock">mock</option>
+          <option value="gemini">gemini</option>
+          <option value="claude">claude</option>
+        </select>
+      </div>
+      <div>
+        <label>Model</label>
+        <select name="model">
+          {% for option in model_options %}
+            <option value="{{ option.value }}" data-provider="{{ option.provider }}">{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <p style="margin-top:8px"><button type="submit">歌詞・styleに合わせて映像設計を再生成</button></p>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>再生成</h2>
+  <p class="muted">メッセージを入力して音楽設計エージェントにパラメータを再生成させます。現在の内容は上書きされます。</p>
+  <form method="post" action="/projects/{{ project }}/music/regenerate">
+    <textarea name="message" rows="3" placeholder="例: サビを長くして、全体的に明るい雰囲気に変更してください"></textarea>
+    <div class="inline-fields">
+      <div>
+        <label>Provider</label>
+        <select name="provider">
+          <option value="mock">mock</option>
+          <option value="gemini">gemini</option>
+          <option value="claude">claude</option>
+          <option value="openai">openai（将来対応枠）</option>
+          <option value="minimax">minimax（将来対応枠）</option>
+        </select>
+      </div>
+      <div>
+        <label>Model</label>
+        <select name="model">
+          {% for option in model_options %}
+            <option value="{{ option.value }}" data-provider="{{ option.provider }}">{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <p style="margin-top:8px"><button type="submit">再生成</button></p>
+  </form>
+</section>
+{% endblock %}
+{% block head %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const audioDropZone = document.getElementById("audio-drop-zone");
+    const audioInput = document.getElementById("audio-file-input");
+    if (audioDropZone && audioInput) {
+      audioDropZone.addEventListener("click", () => audioInput.click());
+      audioDropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        audioDropZone.classList.add("drop-active");
+      });
+      audioDropZone.addEventListener("dragleave", () => {
+        audioDropZone.classList.remove("drop-active");
+      });
+      audioDropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        audioDropZone.classList.remove("drop-active");
+        const file = e.dataTransfer?.files?.[0];
+        if (!file || !file.type.startsWith("audio/")) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        audioInput.files = dt.files;
+        document.getElementById("audio-drop-label").textContent = file.name;
+      });
+      audioInput.addEventListener("change", () => {
+        const file = audioInput.files?.[0];
+        if (file) document.getElementById("audio-drop-label").textContent = file.name;
+      });
+    }
+    document.querySelectorAll(".copy-btn[data-copy-source]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const sourceName = btn.dataset.copySource;
+        const el = document.querySelector(`[name="${sourceName}"]`);
+        if (!el) return;
+        navigator.clipboard.writeText(el.value).then(() => {
+          btn.textContent = "コピー済み";
+          btn.style.background = "var(--accent)";
+          btn.style.color = "#0d1117";
+          setTimeout(() => { btn.textContent = "歌詞をコピー"; btn.style.background = ""; btn.style.color = ""; }, 2000);
+        });
+      });
+    });
+  });
+</script>
+{% endblock %}
