@@ -336,13 +336,15 @@ def _mock_payload(name: str, prompt: str) -> dict:
     if name == "RevisionResult":
         return {"notes": ["オルゴールの琥珀色の光を継続性メモとして追加する方針にしました。"]}
     if name == "SunoMusicParamsSchema":
+        improved = "YouTubeでバズる楽曲を設計する専門家" in prompt
+        first_verse = "改善された歌詞一行目\n改善された歌詞二行目" if improved else "雨粒が路地でリズムを刻む\n小さな灯りが足を止める"
+        chorus = "改善されたサビ一行目\n改善されたサビ二行目" if improved else "光と音が重なる夜に\n忘れていた歌を見つける"
         return {
             "lyrics": (
                 "[Intro: gentle synth pad, rain ambience]\n\n"
-                "[Verse 1: soft vocals, piano]\n改善された歌詞一行目\n改善された歌詞二行目\n"
+                f"[Verse 1: soft vocals, piano]\n{first_verse}\n"
                 "遠くで鳴る金属のメロディ\n心の奥に響く不思議な音\n\n"
-                "[Chorus: powerful vocals, full band]\n改善されたサビ一行目\n"
-                "改善されたサビ二行目\n光と音が絡み合う路地で\n"
+                f"[Chorus: powerful vocals, full band]\n{chorus}\n光と音が絡み合う路地で\n"
                 "小さな命が音楽を見つける\n\n"
                 "[Bridge: stripped down, strings]\n旋律が路地を染めていく\nネオンが優しく脈打つ\n\n"
                 "[Outro: fade out, piano only]\n雨が止み、路地に朝が来る\n\n"
@@ -354,7 +356,7 @@ def _mock_payload(name: str, prompt: str) -> dict:
             "audio_influence": 50,
         }
     if name == "ViralScore":
-        is_improve = "改善" in prompt or "120" in prompt
+        is_improve = "改善された" in prompt
         if is_improve:
             return {
                 "estimated_views": 1200000,
@@ -367,6 +369,7 @@ def _mock_payload(name: str, prompt: str) -> dict:
                 "universality_score": 15,
                 "style_quality_score": 15,
                 "retention_score": 9,
+                "viral_bonus_score": 25,
                 "reasoning": "改善によりフックと共感が強化され、トレンドにも合致。120点を超える品質に達した。",
             }
         return {
@@ -380,6 +383,7 @@ def _mock_payload(name: str, prompt: str) -> dict:
             "universality_score": 14,
             "style_quality_score": 13,
             "retention_score": 8,
+            "viral_bonus_score": 14,
             "reasoning": "フックと共感が高く、トレンドにも合致。100点を超える品質。",
         }
     if name == "ViralChallenge":

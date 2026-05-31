@@ -9,7 +9,7 @@
   <p class="muted">{{ design.brief.logline }}</p>
 </section>
 
-<form method="post" action="/projects/{{ project }}/music/save">
+<form id="music-params-form" method="post" action="/projects/{{ project }}/music/save">
   <section class="panel">
     <h2>Lyrics（メタタグ付き歌詞）</h2>
     <p class="help">セクションタグ: [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro], [End] 等。コロン構文で演出指定可能: [Chorus: powerful vocals, full band]</p>
@@ -39,6 +39,7 @@
         <p class="help">音声アップロード参照時の影響度</p>
       </div>
     </div>
+    <p class="help">歌詞・Style・パラメータを変更して保存すると、古いMV映像設計は無効化されます。保存後に「MV映像設計の再生成」を実行してください。</p>
     <p style="margin-top:16px"><button type="submit">パラメータを保存</button></p>
   </section>
 </form>
@@ -189,6 +190,7 @@
     });
 
     const improveForm = document.getElementById("improve-lyrics-form");
+    const musicParamsForm = document.getElementById("music-params-form");
     const improveBtn = document.getElementById("improve-lyrics-btn");
     const improveStatus = document.getElementById("improve-lyrics-status");
     const improveMessage = document.getElementById("improve-lyrics-message");
@@ -202,6 +204,10 @@
         improveMessage.textContent = "歌詞改善を開始しています";
         improveProgressBar.style.width = "0%";
         const formData = new FormData(improveForm);
+        ["lyrics", "style", "weirdness", "style_influence", "audio_influence"].forEach((name) => {
+          const field = musicParamsForm?.elements.namedItem(name);
+          if (field) formData.set(name, field.value);
+        });
         try {
           const res = await fetch(improveForm.action, { method: "POST", body: formData });
           const { job_id } = await res.json();
@@ -219,7 +225,7 @@
               document.getElementById("style-influence-val").textContent = job.result_data.style_influence;
               document.querySelector("input[name='audio_influence']").value = job.result_data.audio_influence;
               document.getElementById("audio-influence-val").textContent = job.result_data.audio_influence;
-              improveMessage.textContent = "改善完了。フォームを確認して「パラメータを保存」で確定してください。";
+              improveMessage.textContent = "改善完了。フォームを確認して保存し、MV映像設計を再生成してください。";
               improveBtn.disabled = false;
               improveBtn.textContent = "歌詞を改善";
               return;

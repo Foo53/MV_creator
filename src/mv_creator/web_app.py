@@ -158,6 +158,21 @@ def _load_design(paths: ProjectPaths) -> ProductionDesign:
     return ProductionDesign.model_validate_json(paths.design_json.read_text(encoding="utf-8"))
 
 
+def _invalidate_mv_visual_design(design: ProductionDesign, paths: ProjectPaths) -> None:
+    design.script = []
+    design.characters = []
+    design.scenes = []
+    design.shots = []
+    design.image_prompts = []
+    design.video_prompts = []
+    design.continuity_issues = []
+    design.rag_trace = []
+    design.song_sections = []
+    design.mv_visual_plan = None
+    design.learning_notes.append("音楽設定変更: 古いMV映像設計を無効化しました。映像設計を再生成してください。")
+    (paths.root / "timeline_manifest.json").unlink(missing_ok=True)
+
+
 def _shot_image_path(paths: ProjectPaths, shot_id: str, index: int) -> Path | None:
     manual = paths.images / "manual" / f"{shot_id}.png"
     if manual.exists():
@@ -368,7 +383,7 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
         design = _load_design(paths)
         form = await request.form()
         existing_audio_path = design.suno_params.audio_path if design.suno_params else None
-        design.suno_params = SunoMusicParams(
+        updated_suno_params = SunoMusicParams(
             lyrics=str(form.get("lyrics", "")),
             style=str(form.get("style", "")),
             weirdness=int(str(form.get("weirdness", "50"))),
@@ -376,6 +391,9 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
             audio_influence=int(str(form.get("audio_influence", "50"))),
             audio_path=existing_audio_path,
         )
+        if design.suno_params != updated_suno_params:
+            _invalidate_mv_visual_design(design, paths)
+        design.suno_params = updated_suno_params
         paths.design_json.write_text(design.model_dump_json(indent=2), encoding="utf-8")
         return RedirectResponse(f"/projects/{project}/music", status_code=303)
 
@@ -393,6 +411,7 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
         existing_audio_path = design.suno_params.audio_path if design.suno_params else None
         suno_params = MusicAgent(provider).run(design.brief, message=message)
         suno_params.audio_path = existing_audio_path
+        _invalidate_mv_visual_design(design, paths)
         design.suno_params = suno_params
         paths.design_json.write_text(design.model_dump_json(indent=2), encoding="utf-8")
         return RedirectResponse(f"/projects/{project}/music", status_code=303)
@@ -422,6 +441,11 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
         form = await request.form()
         provider_name = str(form.get("provider", "mock"))
         model = str(form.get("model", "gemini-2.5-flash"))
+        lyrics = str(form["lyrics"]) if "lyrics" in form else None
+        style = str(form["style"]) if "style" in form else None
+        weirdness = int(str(form["weirdness"])) if "weirdness" in form else None
+        style_influence = int(str(form["style_influence"])) if "style_influence" in form else None
+        audio_influence = int(str(form["audio_influence"])) if "audio_influence" in form else None
         job = jobs.create(project)
         thread = threading.Thread(
             target=_run_lyrics_improve_job,
@@ -430,6 +454,11 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
                 "project": project,
                 "provider_name": provider_name,
                 "model": model,
+                "lyrics": lyrics,
+                "style": style,
+                "weirdness": weirdness,
+                "style_influence": style_influence,
+                "audio_influence": audio_influence,
                 "output_root": output_root,
             },
             daemon=True,
@@ -527,6 +556,11 @@ def _run_lyrics_improve_job(
     provider_name: str,
     model: str,
     output_root: Path,
+    lyrics: str | None = None,
+    style: str | None = None,
+    weirdness: int | None = None,
+    style_influence: int | None = None,
+    audio_influence: int | None = None,
 ) -> None:
     from mv_creator.agents import LyricImproverAgent
 
@@ -538,11 +572,22 @@ def _run_lyrics_improve_job(
             jobs.update(job_id, status="failed", stage="failed", message="歌詞がまだ生成されていません", error="suno_params is None")
             return
         provider = make_provider(provider_name, model)
+        current_params = design.suno_params.model_copy(deep=True)
+        if lyrics is not None:
+            current_params.lyrics = lyrics
+        if style is not None:
+            current_params.style = style
+        if weirdness is not None:
+            current_params.weirdness = weirdness
+        if style_influence is not None:
+            current_params.style_influence = style_influence
+        if audio_influence is not None:
+            current_params.audio_influence = audio_influence
 
         def progress(message: str, iteration: int, max_iterations: int) -> None:
             jobs.update(job_id, stage="improve-lyrics", message=message, current=iteration, total=max_iterations)
 
-        result = LyricImproverAgent(provider).run(design.brief, design.suno_params, progress_callback=progress)
+        result = LyricImproverAgent(provider).run(design.brief, current_params, progress_callback=progress)
         jobs.update(
             job_id,
             status="completed",

@@ -318,7 +318,9 @@ class LyricImproverAgent(Agent):
 
     def run(self, brief: ProductionBrief, suno_params: SunoMusicParams, *, progress_callback: Callable[[str, int, int], None] | None = None) -> SunoMusicParamsSchema:
         self._context = f"タイトル: {brief.title}\nログライン: {brief.logline}\n映像スタイル: {brief.style}\n想定尺: {brief.duration_seconds}秒"
-        current = suno_params
+        current = suno_params.model_copy(deep=True)
+        best = current.model_copy(deep=True)
+        best_score = -1
         max_iterations = 10
         target_score = 100
 
@@ -328,6 +330,8 @@ class LyricImproverAgent(Agent):
                 progress_callback(f"{phase}: {iteration}回目の評価中（現在{target_score}点未満）", iteration, max_iterations)
 
             score = self._evaluate(current)
+            challenge: ViralChallenge | None = None
+            effective_score = score.total_score
 
             if progress_callback:
                 phase = "100点目標" if target_score == 100 else "120点目標"
@@ -335,7 +339,14 @@ class LyricImproverAgent(Agent):
 
             if score.total_score >= target_score:
                 challenge = self._challenge(current, score, target_score)
+                if challenge.overestimated or not challenge.confirmed:
+                    effective_score = challenge.adjusted_score or min(score.total_score, target_score - 1)
 
+            if effective_score > best_score:
+                best = current.model_copy(deep=True)
+                best_score = effective_score
+
+            if challenge is not None:
                 if challenge.confirmed and not challenge.overestimated:
                     if target_score == 100:
                         if progress_callback:
@@ -348,14 +359,13 @@ class LyricImproverAgent(Agent):
                         return self._to_schema(current)
                 else:
                     if progress_callback:
-                        corrected = challenge.adjusted_score if challenge.adjusted_score else score.total_score
-                        progress_callback(f"検証結果: 過大評価（修正後{corrected}点）→ 改善継続", iteration, max_iterations)
+                        progress_callback(f"検証結果: 過大評価（修正後{effective_score}点）→ 改善継続", iteration, max_iterations)
 
-            current = self._improve(current, score, target_score)
+            current = self._improve(current, score, target_score, challenge=challenge)
 
         if progress_callback:
             progress_callback(f"最大イテレーション到達 → 最良結果を出力", max_iterations, max_iterations)
-        return self._to_schema(current)
+        return self._to_schema(best)
 
     def _evaluate(self, suno_params: SunoMusicParams) -> ViralScore:
         prompt = f"""
@@ -367,15 +377,16 @@ class LyricImproverAgent(Agent):
 評価対象のSunoパラメータ:
 {suno_params.model_dump_json(indent=2)}
 
-採点基準（合計100点満点、優れている場合は最大150点まで可）:
+採点基準（基礎点は合計100点満点）:
 - hook_score: フックの強さ（0-20点）サビやメロディが記憶に残り、一度聞いたら頭から離れないか
 - emotional_score: 感情的共感（0-20点）リスナーが自分の体験と重ねられる普遍的な感情があるか
 - trend_score: トレンド適合（0-20点）YouTubeやSNSで現在拡散されている音楽ジャンル・雰囲気に合致するか
 - universality_score: 歌詞の普遍性（0-15点）幅広い年齢・国籍の層に響く表現か
 - style_quality_score: Style品質（0-15点）SunoのStyle指定が音質とジャンル再現性を最大化しているか
 - retention_score: 再生維持率（0-10点）Intro→Verse→Chorusの展開が最後まで聞きたくなる構成か
+- viral_bonus_score: 基礎点を超える突出した拡散性への加点（0-50点）。基礎点とは別に、具体的な理由がある場合のみ付与する
 
-100点 = 推定100万再生・1万チャンネル登録者増加に相当する品質。
+total_score は上記7項目の合計値にしてください。100点以上は推定100万再生・1万チャンネル登録者増加を狙える品質、120点以上はさらに突出した拡散性がある品質です。
 以下も推定してください:
 - estimated_views: 推定再生数
 - estimated_comments: 推定コメント数
@@ -394,10 +405,10 @@ class LyricImproverAgent(Agent):
 {suno_params.model_dump_json(indent=2)}
 
 現在のスコア: {score.total_score}点
-内訳: フック{score.hook_score} 共感{score.emotional_score} トレンド{score.trend_score} 普遍性{score.universality_score} Style品質{score.style_quality_score} 再生維持{score.retention_score}
+内訳: フック{score.hook_score} 共感{score.emotional_score} トレンド{score.trend_score} 普遍性{score.universality_score} Style品質{score.style_quality_score} 再生維持{score.retention_score} バイラル加点{score.viral_bonus_score}
 推定再生数: {score.estimated_views} / コメント数: {score.estimated_comments} / 登録者増加: {score.estimated_subscribers_gained}
 
-{target_score}点 = 100万再生・1万登録者増加の品質レベルです。
+100点以上は100万再生・1万登録者増加を狙える品質、120点以上はさらに突出した拡散性が必要です。今回の目標は{target_score}点です。
 本当にこの楽曲がそのレベルに達しているか、以下の観点から判定してください:
 - 同じジャンルの実際のYouTubeヒット曲と比較して遜色ないか
 - 歌詞に「人にシェアしたくなる」要素が十分あるか
@@ -405,12 +416,23 @@ class LyricImproverAgent(Agent):
 """
         return self.provider.generate_structured(prompt, ViralChallenge)
 
-    def _improve(self, current: SunoMusicParams, score: ViralScore, target_score: int) -> SunoMusicParams:
+    def _improve(self, current: SunoMusicParams, score: ViralScore, target_score: int, *, challenge: ViralChallenge | None = None) -> SunoMusicParams:
+        effective_score = score.total_score
+        challenge_feedback = ""
+        if challenge is not None and (challenge.overestimated or not challenge.confirmed):
+            effective_score = challenge.adjusted_score or min(score.total_score, target_score - 1)
+            challenge_feedback = f"""
+厳格な審査員による修正:
+- 修正後スコア: {effective_score}
+- 修正理由: {challenge.correction_reason or "目標品質への到達根拠が不足しています。"}
+この指摘を必ず改善に反映してください。
+"""
         prompt = f"""
 あなたはYouTubeでバズる楽曲を設計する専門家です。
-現在のスコア{score.total_score}点を目標{target_score}点に引き上げるため、Sunoパラメータを改善してください。
+現在のスコア{effective_score}点を目標{target_score}点に引き上げるため、Sunoパラメータを改善してください。
 
 {self._context}
+{challenge_feedback}
 
 現在のSunoパラメータ:
 {current.model_dump_json(indent=2)}
@@ -422,6 +444,7 @@ class LyricImproverAgent(Agent):
 - 歌詞の普遍性: {score.universality_score}/15
 - Style品質: {score.style_quality_score}/15
 - 再生維持率: {score.retention_score}/10
+- バイラル加点: {score.viral_bonus_score}/50
 
 低いスコアの基準を中心に改善してください。
 改善のポイント:
@@ -439,6 +462,7 @@ class LyricImproverAgent(Agent):
             weirdness=result.weirdness,
             style_influence=result.style_influence,
             audio_influence=result.audio_influence,
+            audio_path=current.audio_path,
         )
 
     def _to_schema(self, suno_params: SunoMusicParams) -> SunoMusicParamsSchema:

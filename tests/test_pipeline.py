@@ -8,14 +8,18 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
+
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mv_creator.cli import main
 from mv_creator.models import ProductionBrief, ProductionDesign, ProjectPaths, SunoMusicParams
 from mv_creator.providers import MockProvider
-from mv_creator.timeline import build_timeline_manifest
-from mv_creator.web_app import _run_generation_job, create_app, jobs
+from mv_creator.schemas import SunoMusicParamsSchema, ViralScore
+from mv_creator.timeline import build_timeline_manifest, write_timeline_manifest
+from mv_creator.web_app import _run_generation_job, _run_lyrics_improve_job, create_app, jobs
 
 
 class PipelineTest(unittest.TestCase):
@@ -24,6 +28,46 @@ class PipelineTest(unittest.TestCase):
         brief = provider.generate_structured("USER_INPUT: test idea", ProductionBrief)
         self.assertTrue(brief.title)
         self.assertIn("test idea", brief.logline)
+
+    def test_mock_music_generation_does_not_use_improvement_placeholder(self) -> None:
+        from mv_creator.agents import MusicAgent
+
+        result = MusicAgent(MockProvider()).run(ProductionBrief(title="t", logline="l"))
+        self.assertNotIn("改善された", result.lyrics)
+
+    def test_viral_score_normalizes_inconsistent_total(self) -> None:
+        score = ViralScore(
+            estimated_views=100,
+            estimated_comments=10,
+            estimated_subscribers_gained=1,
+            total_score=999,
+            hook_score=19,
+            emotional_score=20,
+            trend_score=19,
+            universality_score=15,
+            style_quality_score=15,
+            retention_score=9,
+            viral_bonus_score=0,
+            reasoning="加点なしで合計値だけが過大",
+        )
+        self.assertEqual(score.total_score, 97)
+
+    def test_viral_score_rejects_out_of_range_breakdown(self) -> None:
+        with self.assertRaises(ValidationError):
+            ViralScore(
+                estimated_views=100,
+                estimated_comments=10,
+                estimated_subscribers_gained=1,
+                total_score=122,
+                hook_score=999,
+                emotional_score=20,
+                trend_score=19,
+                universality_score=15,
+                style_quality_score=15,
+                retention_score=9,
+                viral_bonus_score=0,
+                reasoning="加点なしで合計値だけが過大",
+            )
 
     def test_create_mv_writes_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -365,6 +409,38 @@ class PipelineTest(unittest.TestCase):
             design = ProductionDesign.model_validate_json((Path(temp) / "demo" / "design.json").read_text(encoding="utf-8"))
             self.assertEqual(design.suno_params.audio_path, "music/bgm.mp3")
 
+    def test_music_save_invalidates_stale_mv_visual_design(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as temp:
+            main(
+                [
+                    "--output-root", temp,
+                    "create-mv", "--project", "demo",
+                    "--idea", "テストMV", "--provider", "mock",
+                ]
+            )
+            manifest = build_timeline_manifest(project="demo", output_root=Path(temp))
+            timeline_path = write_timeline_manifest(manifest, "demo", Path(temp))
+            client = TestClient(create_app(Path(temp)))
+            response = client.post(
+                "/projects/demo/music/save",
+                data={
+                    "lyrics": "[Verse]\n新しい歌詞\n[End]",
+                    "style": "J-Pop, bright synth, female vocals",
+                    "weirdness": "35",
+                    "style_influence": "85",
+                    "audio_influence": "60",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            design = ProductionDesign.model_validate_json((Path(temp) / "demo" / "design.json").read_text(encoding="utf-8"))
+            self.assertFalse(design.song_sections)
+            self.assertIsNone(design.mv_visual_plan)
+            self.assertFalse(design.shots)
+            self.assertFalse(timeline_path.exists())
+
     def test_timeline_manifest_includes_uploaded_bgm_data_uri(self) -> None:
         from fastapi.testclient import TestClient
 
@@ -539,6 +615,49 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("style", job_data["result_data"])
             self.assertIn("weirdness", job_data["result_data"])
             self.assertTrue(job_data["result_data"]["lyrics"])
+
+    def test_improve_lyrics_job_uses_current_form_params(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            main(
+                [
+                    "--output-root", temp,
+                    "create-mv", "--project", "demo",
+                    "--idea", "テストMV", "--provider", "mock",
+                ]
+            )
+            job = jobs.create("demo")
+            received: dict[str, SunoMusicParams] = {}
+
+            def fake_run(self, brief, suno_params, *, progress_callback=None):
+                received["suno_params"] = suno_params
+                return SunoMusicParamsSchema(
+                    lyrics=suno_params.lyrics,
+                    style=suno_params.style,
+                    weirdness=suno_params.weirdness,
+                    style_influence=suno_params.style_influence,
+                    audio_influence=suno_params.audio_influence,
+                )
+
+            with patch("mv_creator.agents.LyricImproverAgent.run", fake_run):
+                _run_lyrics_improve_job(
+                    job_id=job.id,
+                    project="demo",
+                    provider_name="mock",
+                    model="mock-fixed",
+                    output_root=Path(temp),
+                    lyrics="[Verse]\n未保存の編集中歌詞\n[End]",
+                    style="unsaved style",
+                    weirdness=41,
+                    style_influence=72,
+                    audio_influence=63,
+                )
+
+            params = received["suno_params"]
+            self.assertIn("未保存の編集中歌詞", params.lyrics)
+            self.assertEqual(params.style, "unsaved style")
+            self.assertEqual(params.weirdness, 41)
+            self.assertEqual(params.style_influence, 72)
+            self.assertEqual(params.audio_influence, 63)
 
     def test_improve_lyrics_fails_without_suno_params(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
