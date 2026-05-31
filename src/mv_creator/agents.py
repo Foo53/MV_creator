@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from mv_creator.models import MVVisualPlan, ProductionBrief, ProductionDesign, SongSection, SunoMusicParams
 from mv_creator.providers import LLMProvider
 from mv_creator.rag import RAGStore
-from mv_creator.schemas import CharacterList, ContinuityReport, MVVisualPlanSchema, PromptBundle, RevisionResult, SceneList, ScriptList, ShotList, SongSectionList, SunoMusicParamsSchema
+from mv_creator.schemas import CharacterList, ContinuityReport, MVVisualPlanSchema, PromptBundle, RevisionResult, SceneList, ScriptList, ShotList, SongSectionList, SunoMusicParamsSchema, ViralChallenge, ViralScore
 
 
 class Agent:
@@ -304,6 +306,148 @@ class MusicAgent(Agent):
             weirdness=result.weirdness,
             style_influence=result.style_influence,
             audio_influence=result.audio_influence,
+        )
+
+
+class LyricImproverAgent(Agent):
+    name = "歌詞改善エージェント"
+
+    def __init__(self, provider: LLMProvider) -> None:
+        super().__init__(provider)
+        self._context = ""
+
+    def run(self, brief: ProductionBrief, suno_params: SunoMusicParams, *, progress_callback: Callable[[str, int, int], None] | None = None) -> SunoMusicParamsSchema:
+        self._context = f"タイトル: {brief.title}\nログライン: {brief.logline}\n映像スタイル: {brief.style}\n想定尺: {brief.duration_seconds}秒"
+        current = suno_params
+        max_iterations = 10
+        target_score = 100
+
+        for iteration in range(1, max_iterations + 1):
+            if progress_callback:
+                phase = "100点目標" if target_score == 100 else "120点目標"
+                progress_callback(f"{phase}: {iteration}回目の評価中（現在{target_score}点未満）", iteration, max_iterations)
+
+            score = self._evaluate(current)
+
+            if progress_callback:
+                phase = "100点目標" if target_score == 100 else "120点目標"
+                progress_callback(f"{phase}: {iteration}回目 → {score.total_score}点", iteration, max_iterations)
+
+            if score.total_score >= target_score:
+                challenge = self._challenge(current, score, target_score)
+
+                if challenge.confirmed and not challenge.overestimated:
+                    if target_score == 100:
+                        if progress_callback:
+                            progress_callback(f"100点達成・検証OK → 120点目標へ移行", iteration, max_iterations)
+                        target_score = 120
+                        continue
+                    else:
+                        if progress_callback:
+                            progress_callback(f"120点達成・検証OK → 最終出力", iteration, max_iterations)
+                        return self._to_schema(current)
+                else:
+                    if progress_callback:
+                        corrected = challenge.adjusted_score if challenge.adjusted_score else score.total_score
+                        progress_callback(f"検証結果: 過大評価（修正後{corrected}点）→ 改善継続", iteration, max_iterations)
+
+            current = self._improve(current, score, target_score)
+
+        if progress_callback:
+            progress_callback(f"最大イテレーション到達 → 最良結果を出力", max_iterations, max_iterations)
+        return self._to_schema(current)
+
+    def _evaluate(self, suno_params: SunoMusicParams) -> ViralScore:
+        prompt = f"""
+あなたはYouTube音楽動画のバイラル_potential（拡散可能性）を評価する専門家です。
+以下のSunoパラメータを、YouTubeに投稿したと仮定して採点してください。
+
+{self._context}
+
+評価対象のSunoパラメータ:
+{suno_params.model_dump_json(indent=2)}
+
+採点基準（合計100点満点、優れている場合は最大150点まで可）:
+- hook_score: フックの強さ（0-20点）サビやメロディが記憶に残り、一度聞いたら頭から離れないか
+- emotional_score: 感情的共感（0-20点）リスナーが自分の体験と重ねられる普遍的な感情があるか
+- trend_score: トレンド適合（0-20点）YouTubeやSNSで現在拡散されている音楽ジャンル・雰囲気に合致するか
+- universality_score: 歌詞の普遍性（0-15点）幅広い年齢・国籍の層に響く表現か
+- style_quality_score: Style品質（0-15点）SunoのStyle指定が音質とジャンル再現性を最大化しているか
+- retention_score: 再生維持率（0-10点）Intro→Verse→Chorusの展開が最後まで聞きたくなる構成か
+
+100点 = 推定100万再生・1万チャンネル登録者増加に相当する品質。
+以下も推定してください:
+- estimated_views: 推定再生数
+- estimated_comments: 推定コメント数
+- estimated_subscribers_gained: 推定チャンネル登録者増加数
+"""
+        return self.provider.generate_structured(prompt, ViralScore)
+
+    def _challenge(self, suno_params: SunoMusicParams, score: ViralScore, target_score: int) -> ViralChallenge:
+        prompt = f"""
+あなたは厳格な審査員です。以下の楽曲が{target_score}点に達したという評価が妥当か検証してください。
+自己評価は甘くなりがちです。本当に{target_score}点に値するか、厳しく判定してください。
+
+{self._context}
+
+評価されたSunoパラメータ:
+{suno_params.model_dump_json(indent=2)}
+
+現在のスコア: {score.total_score}点
+内訳: フック{score.hook_score} 共感{score.emotional_score} トレンド{score.trend_score} 普遍性{score.universality_score} Style品質{score.style_quality_score} 再生維持{score.retention_score}
+推定再生数: {score.estimated_views} / コメント数: {score.estimated_comments} / 登録者増加: {score.estimated_subscribers_gained}
+
+{target_score}点 = 100万再生・1万登録者増加の品質レベルです。
+本当にこの楽曲がそのレベルに達しているか、以下の観点から判定してください:
+- 同じジャンルの実際のYouTubeヒット曲と比較して遜色ないか
+- 歌詞に「人にシェアしたくなる」要素が十分あるか
+- Style指定がSunoで高品質な出力を生む設定になっているか
+"""
+        return self.provider.generate_structured(prompt, ViralChallenge)
+
+    def _improve(self, current: SunoMusicParams, score: ViralScore, target_score: int) -> SunoMusicParams:
+        prompt = f"""
+あなたはYouTubeでバズる楽曲を設計する専門家です。
+現在のスコア{score.total_score}点を目標{target_score}点に引き上げるため、Sunoパラメータを改善してください。
+
+{self._context}
+
+現在のSunoパラメータ:
+{current.model_dump_json(indent=2)}
+
+現在のスコア内訳:
+- フックの強さ: {score.hook_score}/20
+- 感情的共感: {score.emotional_score}/20
+- トレンド適合: {score.trend_score}/20
+- 歌詞の普遍性: {score.universality_score}/15
+- Style品質: {score.style_quality_score}/15
+- 再生維持率: {score.retention_score}/10
+
+低いスコアの基準を中心に改善してください。
+改善のポイント:
+- フックが弱い → サビのメロディや歌詞を印象的にするセクションタグを活用
+- 共感が低い → リスナーが自分を重ねられる普遍的な感情表現を追加
+- トレンド適合 → YouTubeで伸びているジャンルの要素を取り入れる
+- 普遍性 → 年齢や背景を問わず響く表現にする
+- Style品質 → Sunoが高品質に生成できる記述子に調整
+- 再生維持 → Introで惹きつけ、各セクションで展開を作る
+"""
+        result = self.provider.generate_structured(prompt, SunoMusicParamsSchema)
+        return SunoMusicParams(
+            lyrics=result.lyrics,
+            style=result.style,
+            weirdness=result.weirdness,
+            style_influence=result.style_influence,
+            audio_influence=result.audio_influence,
+        )
+
+    def _to_schema(self, suno_params: SunoMusicParams) -> SunoMusicParamsSchema:
+        return SunoMusicParamsSchema(
+            lyrics=suno_params.lyrics,
+            style=suno_params.style,
+            weirdness=suno_params.weirdness,
+            style_influence=suno_params.style_influence,
+            audio_influence=suno_params.audio_influence,
         )
 
 

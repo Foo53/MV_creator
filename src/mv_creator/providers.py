@@ -339,24 +339,54 @@ def _mock_payload(name: str, prompt: str) -> dict:
         return {
             "lyrics": (
                 "[Intro: gentle synth pad, rain ambience]\n\n"
-                "[Verse 1: soft vocals, piano]\n雨の路地に光る水たまり\n小さなロボットが立ち止まる\n"
+                "[Verse 1: soft vocals, piano]\n改善された歌詞一行目\n改善された歌詞二行目\n"
                 "遠くで鳴る金属のメロディ\n心の奥に響く不思議な音\n\n"
-                "[Chorus: powerful vocals, full band]\n壊れたオルゴールが歌い始める\n"
-                "雨の粒が音符に変わる夜\n光と音が絡み合う路地で\n"
+                "[Chorus: powerful vocals, full band]\n改善されたサビ一行目\n"
+                "改善されたサビ二行目\n光と音が絡み合う路地で\n"
                 "小さな命が音楽を見つける\n\n"
-                "[Bridge: stripped down, strings]\n旋律が路地を染めていく\nネオンが優しく脈打つ\n"
-                "青い光と琥珀の光が\n一つの調べに溶けていく\n\n"
-                "[Chorus: powerful vocals, full band]\n壊れたオルゴールが歌い始める\n"
-                "雨の粒が音符に変わる夜\n光と音が絡み合う路地で\n"
-                "小さな命が音楽を見つける\n\n"
-                "[Outro: fade out, piano only]\n雨が止み、路地に朝が来る\nオルゴールの音はまだ響いている\n\n"
+                "[Bridge: stripped down, strings]\n旋律が路地を染めていく\nネオンが優しく脈打つ\n\n"
+                "[Outro: fade out, piano only]\n雨が止み、路地に朝が来る\n\n"
                 "[End]"
             ),
-            "style": "cinematic electronic, mid-tempo, synth and piano, soft female vocals, atmospheric, melancholic",
-            "weirdness": 45,
-            "style_influence": 80,
+            "style": "cinematic electronic, mid-tempo, synth and piano, soft female vocals, polished, melancholic",
+            "weirdness": 55,
+            "style_influence": 85,
             "audio_influence": 50,
         }
+    if name == "ViralScore":
+        is_improve = "改善" in prompt or "120" in prompt
+        if is_improve:
+            return {
+                "estimated_views": 1200000,
+                "estimated_comments": 15000,
+                "estimated_subscribers_gained": 12000,
+                "total_score": 122,
+                "hook_score": 19,
+                "emotional_score": 20,
+                "trend_score": 19,
+                "universality_score": 15,
+                "style_quality_score": 15,
+                "retention_score": 9,
+                "reasoning": "改善によりフックと共感が強化され、トレンドにも合致。120点を超える品質に達した。",
+            }
+        return {
+            "estimated_views": 1050000,
+            "estimated_comments": 12000,
+            "estimated_subscribers_gained": 10500,
+            "total_score": 102,
+            "hook_score": 18,
+            "emotional_score": 18,
+            "trend_score": 17,
+            "universality_score": 14,
+            "style_quality_score": 13,
+            "retention_score": 8,
+            "reasoning": "フックと共感が高く、トレンドにも合致。100点を超える品質。",
+        }
+    if name == "ViralChallenge":
+        is_120 = "120" in prompt
+        if is_120:
+            return {"confirmed": True, "overestimated": False, "adjusted_score": 0, "correction_reason": ""}
+        return {"confirmed": True, "overestimated": False, "adjusted_score": 0, "correction_reason": ""}
     raise ProviderError(f"mock payload が未定義です: {name}. prompt={json.dumps(prompt[:200], ensure_ascii=False)}")
 
 

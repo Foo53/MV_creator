@@ -30,6 +30,7 @@ class JobState:
     total: int = 1
     error: str | None = None
     result_url: str | None = None
+    result_data: dict | None = None
     events: list[str] = field(default_factory=list)
 
     @property
@@ -268,6 +269,7 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
             "percent": job.percent,
             "error": job.error,
             "result_url": job.result_url,
+            "result_data": job.result_data,
             "events": job.events[-8:],
         }
 
@@ -415,6 +417,26 @@ def create_app(output_root: Path = Path("outputs")) -> FastAPI:
         thread.start()
         return RedirectResponse(f"/jobs/{job.id}", status_code=303)
 
+    @app.post("/projects/{project}/music/improve-lyrics")
+    async def improve_lyrics(request: Request, project: str) -> dict[str, str]:
+        form = await request.form()
+        provider_name = str(form.get("provider", "mock"))
+        model = str(form.get("model", "gemini-2.5-flash"))
+        job = jobs.create(project)
+        thread = threading.Thread(
+            target=_run_lyrics_improve_job,
+            kwargs={
+                "job_id": job.id,
+                "project": project,
+                "provider_name": provider_name,
+                "model": model,
+                "output_root": output_root,
+            },
+            daemon=True,
+        )
+        thread.start()
+        return {"job_id": job.id}
+
     @app.post("/projects/{project}/music/upload-audio")
     async def upload_music_audio(project: str, file: UploadFile = File(...)) -> RedirectResponse:
         paths = ProjectPaths.for_project(project, output_root)
@@ -496,6 +518,50 @@ def _run_generation_job(
         jobs.update(job_id, status="failed", stage="failed", message="Providerエラーで停止しました", error=str(exc))
     except Exception as exc:
         jobs.update(job_id, status="failed", stage="failed", message="予期しないエラーで停止しました", error=str(exc))
+
+
+def _run_lyrics_improve_job(
+    *,
+    job_id: str,
+    project: str,
+    provider_name: str,
+    model: str,
+    output_root: Path,
+) -> None:
+    from mv_creator.agents import LyricImproverAgent
+
+    jobs.update(job_id, status="running", stage="improve-lyrics", message="歌詞改善を開始しています", current=0, total=10)
+    try:
+        paths = ProjectPaths.for_project(project, output_root)
+        design = _load_design(paths)
+        if not design.suno_params:
+            jobs.update(job_id, status="failed", stage="failed", message="歌詞がまだ生成されていません", error="suno_params is None")
+            return
+        provider = make_provider(provider_name, model)
+
+        def progress(message: str, iteration: int, max_iterations: int) -> None:
+            jobs.update(job_id, stage="improve-lyrics", message=message, current=iteration, total=max_iterations)
+
+        result = LyricImproverAgent(provider).run(design.brief, design.suno_params, progress_callback=progress)
+        jobs.update(
+            job_id,
+            status="completed",
+            stage="completed",
+            message="歌詞の改善が完了しました",
+            current=10,
+            total=10,
+            result_data={
+                "lyrics": result.lyrics,
+                "style": result.style,
+                "weirdness": result.weirdness,
+                "style_influence": result.style_influence,
+                "audio_influence": result.audio_influence,
+            },
+        )
+    except ProviderError as exc:
+        jobs.update(job_id, status="failed", stage="failed", message="Providerエラーで停止しました", error=str(exc))
+    except Exception as exc:
+        jobs.update(job_id, status="failed", stage="failed", message="歌詞改善に失敗しました", error=str(exc))
 
 
 def _run_mv_rebuild_job(

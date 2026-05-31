@@ -43,6 +43,36 @@
   </section>
 </form>
 
+<section class="panel">
+  <h2>歌詞改善</h2>
+  <p class="muted">現在の歌詞・Style・パラメータをAIで改善します。結果はフォームに反映されるので、確認後「パラメータを保存」で確定してください。</p>
+  <form id="improve-lyrics-form" action="/projects/{{ project }}/music/improve-lyrics" style="display:flex;flex-direction:column;gap:12px">
+    <div class="inline-fields">
+      <div>
+        <label>Provider</label>
+        <select name="provider">
+          <option value="mock">mock</option>
+          <option value="gemini">gemini</option>
+          <option value="claude">claude</option>
+        </select>
+      </div>
+      <div>
+        <label>Model</label>
+        <select name="model">
+          {% for option in model_options %}
+            <option value="{{ option.value }}" data-provider="{{ option.provider }}">{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button type="submit" id="improve-lyrics-btn">歌詞を改善</button>
+  </form>
+  <div id="improve-lyrics-status" style="margin-top:10px;display:none">
+    <p class="muted" id="improve-lyrics-message"></p>
+    <div class="progress"><div id="improve-lyrics-progress"></div></div>
+  </div>
+</section>
+
 <section class="panel" id="audio-section">
   <h2>音楽ファイル</h2>
   {% if audio_url %}
@@ -157,6 +187,59 @@
         });
       });
     });
+
+    const improveForm = document.getElementById("improve-lyrics-form");
+    const improveBtn = document.getElementById("improve-lyrics-btn");
+    const improveStatus = document.getElementById("improve-lyrics-status");
+    const improveMessage = document.getElementById("improve-lyrics-message");
+    const improveProgressBar = document.getElementById("improve-lyrics-progress");
+    if (improveForm) {
+      improveForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        improveBtn.disabled = true;
+        improveBtn.textContent = "改善中...";
+        improveStatus.style.display = "block";
+        improveMessage.textContent = "歌詞改善を開始しています";
+        improveProgressBar.style.width = "0%";
+        const formData = new FormData(improveForm);
+        try {
+          const res = await fetch(improveForm.action, { method: "POST", body: formData });
+          const { job_id } = await res.json();
+          const poll = async () => {
+            const r = await fetch(`/api/jobs/${job_id}`);
+            const job = await r.json();
+            improveProgressBar.style.width = job.percent + "%";
+            improveMessage.textContent = job.message;
+            if (job.status === "completed" && job.result_data) {
+              document.querySelector("textarea[name='lyrics']").value = job.result_data.lyrics;
+              document.querySelector("input[name='style']").value = job.result_data.style;
+              document.querySelector("input[name='weirdness']").value = job.result_data.weirdness;
+              document.getElementById("weirdness-val").textContent = job.result_data.weirdness;
+              document.querySelector("input[name='style_influence']").value = job.result_data.style_influence;
+              document.getElementById("style-influence-val").textContent = job.result_data.style_influence;
+              document.querySelector("input[name='audio_influence']").value = job.result_data.audio_influence;
+              document.getElementById("audio-influence-val").textContent = job.result_data.audio_influence;
+              improveMessage.textContent = "改善完了。フォームを確認して「パラメータを保存」で確定してください。";
+              improveBtn.disabled = false;
+              improveBtn.textContent = "歌詞を改善";
+              return;
+            }
+            if (job.status === "failed") {
+              improveMessage.textContent = "エラー: " + (job.error || "不明なエラー");
+              improveBtn.disabled = false;
+              improveBtn.textContent = "歌詞を改善";
+              return;
+            }
+            setTimeout(poll, 1000);
+          };
+          poll();
+        } catch (err) {
+          improveMessage.textContent = "リクエストに失敗しました: " + err.message;
+          improveBtn.disabled = false;
+          improveBtn.textContent = "歌詞を改善";
+        }
+      });
+    }
   });
 </script>
 {% endblock %}

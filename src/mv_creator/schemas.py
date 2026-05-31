@@ -59,3 +59,24 @@ class SongSectionList(BaseModel):
 
 class MVVisualPlanSchema(MVVisualPlan):
     pass
+
+
+class ViralScore(BaseModel):
+    estimated_views: int = Field(description="推定YouTube再生数")
+    estimated_comments: int = Field(description="推定コメント数")
+    estimated_subscribers_gained: int = Field(description="推定チャンネル登録者増加数")
+    total_score: int = Field(description="総合スコア（0-150）")
+    hook_score: int = Field(description="フックの強さ（0-20）")
+    emotional_score: int = Field(description="感情的共感（0-20）")
+    trend_score: int = Field(description="トレンド適合（0-20）")
+    universality_score: int = Field(description="歌詞の普遍性（0-15）")
+    style_quality_score: int = Field(description="Style品質（0-15）")
+    retention_score: int = Field(description="再生維持率（0-10）")
+    reasoning: str = Field(description="スコアの根拠")
+
+
+class ViralChallenge(BaseModel):
+    confirmed: bool = Field(description="スコアが妥当ならtrue、過大評価ならfalse")
+    overestimated: bool = Field(description="スコアが過大評価されている場合true")
+    adjusted_score: int = Field(default=0, description="修正後のスコア（過大評価の場合）")
+    correction_reason: str = Field(default="", description="修正理由")

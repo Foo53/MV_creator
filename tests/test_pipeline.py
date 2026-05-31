@@ -509,6 +509,114 @@ class PipelineTest(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 400)
 
+    def test_improve_lyrics_job_returns_improved_params(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            main(
+                [
+                    "--output-root", temp,
+                    "create-mv", "--project", "demo",
+                    "--idea", "テストMV", "--provider", "mock",
+                ]
+            )
+            from fastapi.testclient import TestClient
+            client = TestClient(create_app(Path(temp)))
+            response = client.post(
+                "/projects/demo/music/improve-lyrics",
+                data={"provider": "mock", "model": "mock-fixed"},
+            )
+            self.assertEqual(response.status_code, 200)
+            job_id = response.json()["job_id"]
+            import time
+            for _ in range(20):
+                job_resp = client.get(f"/api/jobs/{job_id}")
+                job_data = job_resp.json()
+                if job_data["status"] in ("completed", "failed"):
+                    break
+                time.sleep(0.1)
+            self.assertEqual(job_data["status"], "completed")
+            self.assertIsNotNone(job_data["result_data"])
+            self.assertIn("lyrics", job_data["result_data"])
+            self.assertIn("style", job_data["result_data"])
+            self.assertIn("weirdness", job_data["result_data"])
+            self.assertTrue(job_data["result_data"]["lyrics"])
 
+    def test_improve_lyrics_fails_without_suno_params(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            main(["--output-root", temp, "init", "--project", "empty"])
+            from mv_creator.models import ProjectPaths
+            paths = ProjectPaths.for_project("empty", Path(temp))
+            from mv_creator.models import ProductionDesign, ProductionBrief, SunoMusicParams
+            design = ProductionDesign(
+                brief=ProductionBrief(title="t", logline="l"),
+                script=[], characters=[], scenes=[], shots=[],
+                image_prompts=[], video_prompts=[],
+            )
+            paths.design_json.write_text(design.model_dump_json(indent=2), encoding="utf-8")
+            from fastapi.testclient import TestClient
+            client = TestClient(create_app(Path(temp)))
+            response = client.post(
+                "/projects/empty/music/improve-lyrics",
+                data={"provider": "mock", "model": "mock-fixed"},
+            )
+            job_id = response.json()["job_id"]
+            import time
+            for _ in range(20):
+                job_resp = client.get(f"/api/jobs/{job_id}")
+                job_data = job_resp.json()
+                if job_data["status"] in ("completed", "failed"):
+                    break
+                time.sleep(0.1)
+            self.assertEqual(job_data["status"], "failed")
+
+    def test_improve_lyrics_loop_passes_100_and_reaches_120(self) -> None:
+        from mv_creator.agents import LyricImproverAgent
+        from mv_creator.providers import MockProvider
+
+        provider = MockProvider()
+        agent = LyricImproverAgent(provider)
+        brief = ProductionBrief(title="テスト", logline="テストログライン", duration_seconds=60)
+        suno_params = SunoMusicParams(lyrics="[Verse]\nテスト歌詞\n[End]", style="pop, upbeat")
+        events: list[str] = []
+
+        def progress(message: str, iteration: int, max_iterations: int) -> None:
+            events.append(message)
+
+        result = agent.run(brief, suno_params, progress_callback=progress)
+        self.assertTrue(result.lyrics)
+        self.assertTrue(result.style)
+        self.assertIn("weirdness", result.model_dump())
+        has_100_phase = any("100点目標" in e for e in events)
+        has_120_phase = any("120点目標" in e for e in events)
+        has_completed = any("検証OK" in e for e in events)
+        self.assertTrue(has_100_phase, f"100点目標フェーズがない: {events}")
+        self.assertTrue(has_120_phase, f"120点目標フェーズがない: {events}")
+        self.assertTrue(has_completed, f"検証完了がない: {events}")
+
+    def test_improve_lyrics_job_reports_iteration_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            main(
+                [
+                    "--output-root", temp,
+                    "create-mv", "--project", "demo",
+                    "--idea", "テストMV", "--provider", "mock",
+                ]
+            )
+            from fastapi.testclient import TestClient
+            client = TestClient(create_app(Path(temp)))
+            response = client.post(
+                "/projects/demo/music/improve-lyrics",
+                data={"provider": "mock", "model": "mock-fixed"},
+            )
+            job_id = response.json()["job_id"]
+            import time
+            for _ in range(30):
+                job_resp = client.get(f"/api/jobs/{job_id}")
+                job_data = job_resp.json()
+                if job_data["status"] in ("completed", "failed"):
+                    break
+                time.sleep(0.1)
+            self.assertEqual(job_data["status"], "completed")
+            self.assertIn("lyrics", job_data["result_data"])
+            self.assertIn("改善", job_data["result_data"]["lyrics"])
 if __name__ == "__main__":
     unittest.main()
