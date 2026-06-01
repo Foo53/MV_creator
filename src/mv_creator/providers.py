@@ -359,32 +359,36 @@ def _mock_payload(name: str, prompt: str) -> dict:
         is_improve = "改善された" in prompt
         if is_improve:
             return {
-                "estimated_views": 1200000,
-                "estimated_comments": 15000,
-                "estimated_subscribers_gained": 12000,
-                "total_score": 122,
+                "scenarios": [
+                    {"scenario_name": "慎重", "assumptions": "初動露出は限定的だが、サビの共有が徐々に伸びる。", "estimated_views": 1000000, "estimated_comments": 10000, "estimated_subscribers_gained": 10000},
+                    {"scenario_name": "控えめ", "assumptions": "関連動画から安定して流入し、共感コメントが増える。", "estimated_views": 1100000, "estimated_comments": 12000, "estimated_subscribers_gained": 11000},
+                    {"scenario_name": "標準", "assumptions": "サビの切り抜きがSNSで共有され、投稿全体へ送客する。", "estimated_views": 1250000, "estimated_comments": 15000, "estimated_subscribers_gained": 12500},
+                    {"scenario_name": "好調", "assumptions": "複数のプレイリストとSNS投稿に載り、視聴が継続する。", "estimated_views": 1400000, "estimated_comments": 18000, "estimated_subscribers_gained": 14000},
+                    {"scenario_name": "拡散", "assumptions": "印象的なフックが広く共有され、追加露出を獲得する。", "estimated_views": 1600000, "estimated_comments": 22000, "estimated_subscribers_gained": 16000},
+                ],
                 "hook_score": 19,
                 "emotional_score": 20,
                 "trend_score": 19,
                 "universality_score": 15,
                 "style_quality_score": 15,
                 "retention_score": 9,
-                "viral_bonus_score": 25,
-                "reasoning": "改善によりフックと共感が強化され、トレンドにも合致。120点を超える品質に達した。",
+                "reasoning": "改善により慎重なシナリオでも100万再生と登録者増加1万件を見込める。",
             }
         return {
-            "estimated_views": 1050000,
-            "estimated_comments": 12000,
-            "estimated_subscribers_gained": 10500,
-            "total_score": 102,
+            "scenarios": [
+                {"scenario_name": "慎重", "assumptions": "初動露出が弱く、関連動画からの流入も限定的。", "estimated_views": 650000, "estimated_comments": 5000, "estimated_subscribers_gained": 6500},
+                {"scenario_name": "控えめ", "assumptions": "一定の共感は得るが、共有が局所的に留まる。", "estimated_views": 850000, "estimated_comments": 7500, "estimated_subscribers_gained": 8500},
+                {"scenario_name": "標準", "assumptions": "サビが一部で共有され、安定した視聴を獲得する。", "estimated_views": 1050000, "estimated_comments": 12000, "estimated_subscribers_gained": 10500},
+                {"scenario_name": "好調", "assumptions": "プレイリスト掲載により追加流入を獲得する。", "estimated_views": 1200000, "estimated_comments": 14000, "estimated_subscribers_gained": 12000},
+                {"scenario_name": "拡散", "assumptions": "短尺切り抜きがSNSで伸び、投稿全体へ送客する。", "estimated_views": 1400000, "estimated_comments": 17000, "estimated_subscribers_gained": 14000},
+            ],
             "hook_score": 18,
             "emotional_score": 18,
             "trend_score": 17,
             "universality_score": 14,
             "style_quality_score": 13,
             "retention_score": 8,
-            "viral_bonus_score": 14,
-            "reasoning": "フックと共感が高く、トレンドにも合致。100点を超える品質。",
+            "reasoning": "中央値では目標を満たすが、控えめなケースでは100万再生と登録者増加1万件を下回る。",
         }
     if name == "ViralChallenge":
         is_120 = "120" in prompt

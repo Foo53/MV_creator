@@ -225,7 +225,9 @@
               document.getElementById("style-influence-val").textContent = job.result_data.style_influence;
               document.querySelector("input[name='audio_influence']").value = job.result_data.audio_influence;
               document.getElementById("audio-influence-val").textContent = job.result_data.audio_influence;
-              improveMessage.textContent = "改善完了。フォームを確認して保存し、MV映像設計を再生成してください。";
+              improveMessage.textContent = job.result_data.target_achieved
+                ? "120点目標を達成しました。フォームを確認して保存し、MV映像設計を再生成してください。"
+                : "120点目標には未達です。最良候補をフォームへ反映しました。確認後、保存または再改善してください。";
               improveBtn.disabled = false;
               improveBtn.textContent = "歌詞を改善";
               return;

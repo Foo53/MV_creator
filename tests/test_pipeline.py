@@ -22,6 +22,19 @@ from mv_creator.timeline import build_timeline_manifest, write_timeline_manifest
 from mv_creator.web_app import _run_generation_job, _run_lyrics_improve_job, create_app, jobs
 
 
+def _virtual_scenarios(values: list[tuple[int, int, int]]) -> list[dict[str, object]]:
+    return [
+        {
+            "scenario_name": f"scenario-{index}",
+            "assumptions": "test assumptions",
+            "estimated_views": views,
+            "estimated_comments": comments,
+            "estimated_subscribers_gained": subscribers,
+        }
+        for index, (views, comments, subscribers) in enumerate(values, start=1)
+    ]
+
+
 class PipelineTest(unittest.TestCase):
     def test_mock_provider_structured_brief(self) -> None:
         provider = MockProvider()
@@ -35,39 +48,86 @@ class PipelineTest(unittest.TestCase):
         result = MusicAgent(MockProvider()).run(ProductionBrief(title="t", logline="l"))
         self.assertNotIn("改善された", result.lyrics)
 
-    def test_viral_score_normalizes_inconsistent_total(self) -> None:
+    def test_viral_score_calculates_median_and_lower_quartile(self) -> None:
         score = ViralScore(
-            estimated_views=100,
-            estimated_comments=10,
+            scenarios=_virtual_scenarios(
+                [
+                    (650000, 5000, 6500),
+                    (850000, 7500, 8500),
+                    (1050000, 12000, 10500),
+                    (1200000, 14000, 12000),
+                    (1400000, 17000, 14000),
+                ]
+            ),
+            estimated_views=1,
+            estimated_comments=1,
             estimated_subscribers_gained=1,
-            total_score=999,
+            total_score=0,
             hook_score=19,
             emotional_score=20,
             trend_score=19,
             universality_score=15,
             style_quality_score=15,
             retention_score=9,
-            viral_bonus_score=0,
-            reasoning="加点なしで合計値だけが過大",
+            reasoning="中央値では達成するが、下位ケースでは未達",
         )
-        self.assertEqual(score.total_score, 97)
+        self.assertEqual(score.estimated_views, 1050000)
+        self.assertEqual(score.estimated_comments, 12000)
+        self.assertEqual(score.estimated_subscribers_gained, 10500)
+        self.assertEqual(score.lower_quartile_views, 850000)
+        self.assertEqual(score.lower_quartile_subscribers_gained, 8500)
+        self.assertTrue(score.achieved_100)
+        self.assertFalse(score.achieved_120)
+        self.assertEqual(score.total_score, 116)
 
     def test_viral_score_rejects_out_of_range_breakdown(self) -> None:
         with self.assertRaises(ValidationError):
             ViralScore(
-                estimated_views=100,
-                estimated_comments=10,
-                estimated_subscribers_gained=1,
-                total_score=122,
+                scenarios=_virtual_scenarios([(1000000, 10000, 10000)] * 5),
                 hook_score=999,
                 emotional_score=20,
                 trend_score=19,
                 universality_score=15,
                 style_quality_score=15,
                 retention_score=9,
-                viral_bonus_score=0,
-                reasoning="加点なしで合計値だけが過大",
+                reasoning="品質内訳が範囲外",
             )
+
+    def test_viral_score_requires_repeated_virtual_posts(self) -> None:
+        with self.assertRaises(ValidationError):
+            ViralScore(
+                scenarios=_virtual_scenarios([(1000000, 10000, 10000)] * 4),
+                hook_score=20,
+                emotional_score=20,
+                trend_score=20,
+                universality_score=15,
+                style_quality_score=15,
+                retention_score=10,
+                reasoning="仮想投稿数が不足",
+            )
+
+    def test_viral_score_reaches_120_only_when_lower_quartile_meets_goal(self) -> None:
+        score = ViralScore(
+            scenarios=_virtual_scenarios(
+                [
+                    (1000000, 10000, 10000),
+                    (1100000, 12000, 11000),
+                    (1250000, 15000, 12500),
+                    (1400000, 18000, 14000),
+                    (1600000, 22000, 16000),
+                ]
+            ),
+            hook_score=19,
+            emotional_score=20,
+            trend_score=19,
+            universality_score=15,
+            style_quality_score=15,
+            retention_score=9,
+            reasoning="下位ケースでも目標達成",
+        )
+        self.assertTrue(score.achieved_100)
+        self.assertTrue(score.achieved_120)
+        self.assertGreaterEqual(score.total_score, 120)
 
     def test_create_mv_writes_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -615,6 +675,9 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("style", job_data["result_data"])
             self.assertIn("weirdness", job_data["result_data"])
             self.assertTrue(job_data["result_data"]["lyrics"])
+            self.assertTrue(job_data["result_data"]["target_achieved"])
+            self.assertGreaterEqual(job_data["result_data"]["lower_quartile_views"], 1000000)
+            self.assertGreaterEqual(job_data["result_data"]["lower_quartile_subscribers_gained"], 10000)
 
     def test_improve_lyrics_job_uses_current_form_params(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -710,6 +773,34 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(has_100_phase, f"100点目標フェーズがない: {events}")
         self.assertTrue(has_120_phase, f"120点目標フェーズがない: {events}")
         self.assertTrue(has_completed, f"検証完了がない: {events}")
+
+    def test_improve_lyrics_loop_reports_unmet_target_after_max_iterations(self) -> None:
+        from mv_creator.agents import LyricImproverAgent
+
+        agent = LyricImproverAgent(MockProvider())
+        brief = ProductionBrief(title="テスト", logline="テストログライン", duration_seconds=60)
+        suno_params = SunoMusicParams(lyrics="[Verse]\nテスト歌詞\n[End]", style="pop, upbeat")
+        low_score = ViralScore(
+            scenarios=_virtual_scenarios([(500000, 4000, 5000)] * 5),
+            hook_score=10,
+            emotional_score=10,
+            trend_score=10,
+            universality_score=8,
+            style_quality_score=8,
+            retention_score=5,
+            reasoning="目標未達",
+        )
+        events: list[str] = []
+
+        with (
+            patch.object(agent, "_evaluate", return_value=low_score),
+            patch.object(agent, "_improve", return_value=suno_params),
+        ):
+            agent.run(brief, suno_params, progress_callback=lambda message, iteration, max_iterations: events.append(message))
+
+        self.assertFalse(agent.last_target_achieved)
+        self.assertIs(agent.last_score, low_score)
+        self.assertTrue(any("目標未達" in event for event in events))
 
     def test_improve_lyrics_job_reports_iteration_progress(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

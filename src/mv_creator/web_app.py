@@ -587,12 +587,15 @@ def _run_lyrics_improve_job(
         def progress(message: str, iteration: int, max_iterations: int) -> None:
             jobs.update(job_id, stage="improve-lyrics", message=message, current=iteration, total=max_iterations)
 
-        result = LyricImproverAgent(provider).run(design.brief, current_params, progress_callback=progress)
+        agent = LyricImproverAgent(provider)
+        result = agent.run(design.brief, current_params, progress_callback=progress)
+        score = agent.last_score
+        message = "歌詞の改善が完了しました" if agent.last_target_achieved else "120点目標には未達のため、最良候補を返しました"
         jobs.update(
             job_id,
             status="completed",
             stage="completed",
-            message="歌詞の改善が完了しました",
+            message=message,
             current=10,
             total=10,
             result_data={
@@ -601,6 +604,13 @@ def _run_lyrics_improve_job(
                 "weirdness": result.weirdness,
                 "style_influence": result.style_influence,
                 "audio_influence": result.audio_influence,
+                "target_achieved": agent.last_target_achieved,
+                "score": score.total_score if score else None,
+                "estimated_views": score.estimated_views if score else None,
+                "estimated_comments": score.estimated_comments if score else None,
+                "estimated_subscribers_gained": score.estimated_subscribers_gained if score else None,
+                "lower_quartile_views": score.lower_quartile_views if score else None,
+                "lower_quartile_subscribers_gained": score.lower_quartile_subscribers_gained if score else None,
             },
         )
     except ProviderError as exc:
