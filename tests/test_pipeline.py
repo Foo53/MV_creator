@@ -15,9 +15,9 @@ from pydantic import ValidationError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mv_creator.cli import main
-from mv_creator.models import ProductionBrief, ProductionDesign, ProjectPaths, SunoMusicParams
-from mv_creator.providers import MockProvider
-from mv_creator.schemas import SunoMusicParamsSchema, ViralScore
+from mv_creator.models import MVVisualPlan, ProductionBrief, ProductionDesign, ProjectPaths, SunoMusicParams
+from mv_creator.providers import CodexProvider, MockProvider, _codex_strict_schema, make_provider
+from mv_creator.schemas import MVVisualPlanSchema, SunoMusicParamsSchema, ViralScore
 from mv_creator.timeline import build_timeline_manifest, write_timeline_manifest
 from mv_creator.web_app import _run_generation_job, _run_lyrics_improve_job, create_app, jobs
 
@@ -36,6 +36,52 @@ def _virtual_scenarios(values: list[tuple[int, int, int]]) -> list[dict[str, obj
 
 
 class PipelineTest(unittest.TestCase):
+    def test_codex_provider_uses_read_only_structured_exec(self) -> None:
+        def fake_run(command: list[str], **kwargs):
+            self.assertEqual(Path(command[0]).name, "codex.exe" if Path(command[0]).suffix else "codex")
+            self.assertEqual(command[1], "exec")
+            self.assertIn("--ephemeral", command)
+            self.assertIn("--skip-git-repo-check", command)
+            self.assertEqual(command[command.index("--sandbox") + 1], "read-only")
+            self.assertEqual(command[command.index("--model") + 1], "gpt-5.5")
+            self.assertTrue(kwargs["input"].startswith("USER_INPUT:"))
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(
+                json.dumps({"title": "Codex MV", "logline": "Codex generated brief"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        with patch("mv_creator.providers.subprocess.run", side_effect=fake_run):
+            brief = CodexProvider(model="gpt-5.5").generate_structured("USER_INPUT: test", ProductionBrief)
+        self.assertEqual(brief.title, "Codex MV")
+
+    def test_codex_provider_defaults_to_gpt_5_5(self) -> None:
+        provider = make_provider("codex", None)
+        self.assertIsInstance(provider, CodexProvider)
+        self.assertEqual(provider.model, "gpt-5.5")
+
+    def test_codex_schema_requires_all_object_properties(self) -> None:
+        schema = _codex_strict_schema(ProductionBrief.model_json_schema())
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(set(schema["required"]), set(schema["properties"]))
+
+    def test_codex_schema_supports_mv_section_visuals(self) -> None:
+        schema = _codex_strict_schema(MVVisualPlanSchema.model_json_schema())
+        section_visual = schema["$defs"]["MVSectionVisual"]
+        self.assertFalse(section_visual["additionalProperties"])
+        self.assertEqual(set(section_visual["required"]), {"section_id", "visual_direction"})
+
+    def test_legacy_mv_section_visual_dict_is_migrated(self) -> None:
+        plan = MVVisualPlan.model_validate(
+            {
+                "concept": "legacy",
+                "section_to_visuals": {"Intro": "wide establishing shot"},
+            }
+        )
+        self.assertEqual(plan.section_visuals[0].section_id, "Intro")
+        self.assertEqual(plan.section_visuals[0].visual_direction, "wide establishing shot")
+
     def test_mock_provider_structured_brief(self) -> None:
         provider = MockProvider()
         brief = provider.generate_structured("USER_INPUT: test idea", ProductionBrief)
@@ -47,6 +93,7 @@ class PipelineTest(unittest.TestCase):
 
         result = MusicAgent(MockProvider()).run(ProductionBrief(title="t", logline="l"))
         self.assertNotIn("改善された", result.lyrics)
+        self.assertEqual(result.estimated_duration_seconds, 60)
 
     def test_viral_score_calculates_median_and_lower_quartile(self) -> None:
         score = ViralScore(
@@ -151,7 +198,7 @@ class PipelineTest(unittest.TestCase):
             design = ProductionDesign.model_validate_json((root / "design.json").read_text(encoding="utf-8"))
             self.assertEqual(len(design.shots), 3)
             self.assertTrue(design.image_prompts)
-            self.assertTrue(design.video_prompts)
+            self.assertTrue(design.editing_prompts)
             self.assertTrue(design.learning_notes)
             self.assertEqual(design.creation_mode, "idea_to_mv")
 
@@ -216,7 +263,7 @@ class PipelineTest(unittest.TestCase):
             manifest_path = root / "timeline_manifest.json"
             self.assertTrue(manifest_path.exists())
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(manifest["output_mode"], "mv")
+            self.assertNotIn("output_mode", manifest)
             self.assertEqual(len(manifest["shots"]), 3)
 
     def test_timeline_manifest_marks_missing_images(self) -> None:
@@ -238,7 +285,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(manifest.shots[0].status, "missing")
             self.assertIsNone(manifest.shots[0].image_src)
 
-    def test_narration_caption_used_in_timeline(self) -> None:
+    def test_lyrics_caption_used_in_timeline(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             main(
                 [
@@ -261,13 +308,64 @@ class PipelineTest(unittest.TestCase):
 
     def test_production_brief_new_fields_default_empty(self) -> None:
         brief = ProductionBrief(title="t", logline="l")
-        self.assertEqual(brief.genre, "")
-        self.assertEqual(brief.mood, "")
-        self.assertEqual(brief.color_tone, "")
-        self.assertEqual(brief.narration_style, "")
-        self.assertEqual(brief.target_platform, "")
+        self.assertEqual(brief.music_genre, "")
+        self.assertEqual(brief.music_mood, "")
+        self.assertEqual(brief.visual_style, "cinematic")
+        self.assertEqual(brief.visual_palette, "")
+        self.assertEqual(brief.release_format, "youtube")
 
-    def test_target_platform_sets_resolution(self) -> None:
+    def test_legacy_design_json_fields_are_migrated(self) -> None:
+        design = ProductionDesign.model_validate(
+            {
+                "brief": {
+                    "title": "legacy",
+                    "logline": "legacy project",
+                    "genre": "rock",
+                    "mood": "energetic",
+                    "style": "anime",
+                    "color_tone": "neon",
+                    "target_platform": "tiktok",
+                },
+                "script": [],
+                "characters": [],
+                "scenes": [],
+                "shots": [
+                    {
+                        "shot_id": "shot_001",
+                        "scene_id": "scene_001",
+                        "order": 1,
+                        "description": "legacy shot",
+                        "camera": "wide",
+                        "lens": "35mm",
+                        "motion": "slow zoom",
+                        "first_frame": "wide",
+                        "last_frame": "medium",
+                        "lighting": "neon",
+                        "audio": "chorus",
+                        "narration_caption": "legacy lyrics",
+                    }
+                ],
+                "image_prompts": [],
+                "video_prompts": [
+                    {
+                        "shot_id": "shot_001",
+                        "prompt": "slow zoom",
+                        "camera_motion": "push in",
+                        "temporal_notes": "hold",
+                    }
+                ],
+            }
+        )
+        self.assertEqual(design.brief.music_genre, "rock")
+        self.assertEqual(design.brief.visual_style, "anime")
+        self.assertEqual(design.brief.release_format, "tiktok")
+        self.assertEqual(design.shots[0].motion_start, "wide")
+        self.assertEqual(design.shots[0].lyrics_caption, "legacy lyrics")
+        self.assertEqual(design.editing_prompts[0].editing_instruction, "slow zoom")
+        self.assertNotIn("script", design.model_dump())
+        self.assertNotIn("video_prompts", design.model_dump())
+
+    def test_release_format_sets_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             main(
                 [
@@ -280,7 +378,7 @@ class PipelineTest(unittest.TestCase):
                     "テスト",
                     "--provider",
                     "mock",
-                    "--target-platform",
+                    "--release-format",
                     "tiktok",
                 ]
             )
@@ -306,7 +404,6 @@ class PipelineTest(unittest.TestCase):
                 ]
             )
             design = ProductionDesign.model_validate_json((Path(temp) / "demo" / "design.json").read_text(encoding="utf-8"))
-            self.assertEqual(design.brief.output_mode, "mv")
             self.assertIsNotNone(design.suno_params)
             self.assertTrue(design.suno_params.lyrics)
             self.assertTrue(design.suno_params.style)
@@ -334,7 +431,7 @@ class PipelineTest(unittest.TestCase):
             )
             design = ProductionDesign.model_validate_json((Path(temp) / "demo" / "design.json").read_text(encoding="utf-8"))
             for shot in design.shots:
-                self.assertTrue(shot.narration_caption, f"{shot.shot_id} should have narration_caption in MV mode")
+                self.assertTrue(shot.lyrics_caption, f"{shot.shot_id} should have lyrics_caption")
 
     def test_mv_mode_image_prompts_generated(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -353,7 +450,7 @@ class PipelineTest(unittest.TestCase):
             )
             design = ProductionDesign.model_validate_json((Path(temp) / "demo" / "design.json").read_text(encoding="utf-8"))
             self.assertTrue(design.image_prompts)
-            self.assertTrue(design.video_prompts)
+            self.assertTrue(design.editing_prompts)
             self.assertIn("MV", "\n".join(design.learning_notes))
             for shot in design.shots:
                 self.assertTrue(shot.still_image_intent)
@@ -381,13 +478,12 @@ class PipelineTest(unittest.TestCase):
                 ]
             )
             manifest = build_timeline_manifest(project="demo", output_root=Path(temp))
-            self.assertEqual(manifest.output_mode, "mv")
             self.assertTrue(manifest.lyrics_timeline)
             for shot in manifest.shots:
                 self.assertIn(shot.shot_id, manifest.lyrics_timeline)
                 self.assertTrue(manifest.lyrics_timeline[shot.shot_id])
 
-    def test_timeline_duration_matches_requested_mv_duration(self) -> None:
+    def test_timeline_duration_matches_automatically_analyzed_song_duration(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             main(
                 [
@@ -398,6 +494,9 @@ class PipelineTest(unittest.TestCase):
             )
             manifest = build_timeline_manifest(project="demo", output_root=Path(temp))
             self.assertAlmostEqual(sum(shot.duration_seconds for shot in manifest.shots), 60.0)
+            design = ProductionDesign.model_validate_json((Path(temp) / "demo" / "design.json").read_text(encoding="utf-8"))
+            self.assertEqual(design.brief.duration_seconds, 60)
+            self.assertEqual(design.suno_params.estimated_duration_seconds, 60)
             self.assertIn("[Outro]", manifest.lyrics_timeline["shot_003"])
             self.assertEqual(manifest.shots[0].transition.type, "cut")
             self.assertTrue(all(shot.transition.type == "crossfade" for shot in manifest.shots[1:]))
@@ -414,6 +513,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(params.weirdness, 50)
         self.assertEqual(params.style_influence, 80)
         self.assertEqual(params.audio_influence, 50)
+        self.assertEqual(params.estimated_duration_seconds, 0)
         self.assertIsNone(params.audio_path)
 
     def test_music_audio_upload_saves_file(self) -> None:
@@ -545,14 +645,11 @@ class PipelineTest(unittest.TestCase):
                 idea="テストMV",
                 lyrics="",
                 music_style="",
-                audience="general",
-                style="cinematic",
-                duration_seconds=60,
-                genre="",
-                mood="",
-                color_tone="",
-                narration_style="",
-                target_platform="",
+                visual_style="cinematic",
+                music_genre="",
+                music_mood="",
+                visual_palette="",
+                release_format="youtube",
                 provider_name="mock",
                 model="mock-fixed",
                 output_root=Path(temp),
@@ -573,14 +670,11 @@ class PipelineTest(unittest.TestCase):
                 idea="",
                 lyrics=lyrics,
                 music_style="acoustic pop, soft vocals",
-                audience="general",
-                style="cinematic",
-                duration_seconds=60,
-                genre="",
-                mood="",
-                color_tone="",
-                narration_style="",
-                target_platform="",
+                visual_style="cinematic",
+                music_genre="",
+                music_mood="",
+                visual_palette="",
+                release_format="youtube",
                 provider_name="mock",
                 model="mock-fixed",
                 output_root=Path(temp),
@@ -633,6 +727,15 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("idea_to_mv", response.text)
             self.assertIn("lyrics_to_mv", response.text)
+            self.assertIn("music_genre", response.text)
+            self.assertIn("music_mood", response.text)
+            self.assertIn("visual_palette", response.text)
+            self.assertIn("release_format", response.text)
+            self.assertIn('<option value="codex">codex</option>', response.text)
+            self.assertIn('data-provider="codex"', response.text)
+            self.assertNotIn('name="duration_seconds"', response.text)
+            self.assertNotIn("audience", response.text)
+            self.assertNotIn("narration_style", response.text)
 
     def test_web_lyrics_mode_requires_lyrics(self) -> None:
         from fastapi.testclient import TestClient
@@ -730,8 +833,8 @@ class PipelineTest(unittest.TestCase):
             from mv_creator.models import ProductionDesign, ProductionBrief, SunoMusicParams
             design = ProductionDesign(
                 brief=ProductionBrief(title="t", logline="l"),
-                script=[], characters=[], scenes=[], shots=[],
-                image_prompts=[], video_prompts=[],
+                mv_beats=[], characters=[], scenes=[], shots=[],
+                image_prompts=[], editing_prompts=[],
             )
             paths.design_json.write_text(design.model_dump_json(indent=2), encoding="utf-8")
             from fastapi.testclient import TestClient

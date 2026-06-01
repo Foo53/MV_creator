@@ -118,17 +118,18 @@ mv-creator web --port 8000
 - `agents.py` — 各エージェントクラスは単一のLLM呼び出しとプロンプトテンプレートをラップ。実行中にRAGへ書き込む
 - `providers.py` — `LLMProvider`抽象クラスと、`GeminiProvider`（`response_schema`による構造化出力）および`MockProvider`（全スキーマ型の決定論的フィクスチャ）。`normalize_aspect_ratio()`は未対応比率（例: `2.35:1` → `21:9`）をGemini対応比率へ丸める
 - `models.py` — 全Pydanticデータモデル（`ProductionBrief`, `ProductionDesign`, `ShotPlan`など）と`ProjectPaths`
-- `schemas.py` — エージェントの構造化出力タゲットとなるラッパーモデル（`ScriptList`, `ShotList`, `PromptBundle`など）
+- `schemas.py` — エージェントの構造化出力タゲットとなるラッパーモデル（`MVBeatList`, `ShotList`, `PromptBundle`など）
 - `rag.py` — `RAGStore`によるキーワードベース検索。キャラクター、ショット、プロンプト、画像メタデータを`MemoryRecord`として保存。全検索は`trace`に記録されRAG参照履歴出力に使われる
 - `renderers.py` — `ProductionDesign`をMarkdownファイルに変換し、JSON出力を書き込む
 - `web_app.py` — FastAPIベースのWeb UI。ブラウザからMV制作設計を実行可能
 
-**出力構造**は`outputs/<project>/`以下に配置。`design.json`, `design.md`, `storyboard.md`, `image_prompts.md`, `video_prompts.md`, `continuity_report.md`, `rag_trace.md`, `learning_notes.md`, `timeline.json`, `images/`。
+**出力構造**は`outputs/<project>/`以下に配置。`design.json`, `design.md`, `storyboard.md`, `image_prompts.md`, `editing_prompts.md`, `continuity_report.md`, `rag_trace.md`, `learning_notes.md`, `timeline_manifest.json`, `images/`。
 
 ## 開発上の注意
 
 - Python 3.10+、全ファイルで`from __future__ import annotations`を使用
 - `--provider gemini`には`GEMINI_API_KEY`環境変数が必要。mock providerはオフラインで動作
+- `--provider codex`はログイン済みのCodex CLIを`codex exec`で読み取り専用実行する。Web UIの候補は`~/.codex/models_cache.json`から読み込む
 - Mock providerはPydanticモデルのクラス名をキーに決定論的データを返す — 新しいエージェント戻り値型を追加する際は`providers.py`の`_mock_payload()`にケースを追加する必要がある
 - テストは`tempfile.TemporaryDirectory`を使い、`cli.main()`にargvリストを直接渡して実行
 - `pyproject.toml`で`pythonpath = ["src"]`を設定済み。テスト内の`sys.path.insert`は旧来のフォールバック

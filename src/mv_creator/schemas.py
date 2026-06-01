@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from statistics import median, quantiles
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import AliasChoices, BaseModel, Field, computed_field
 
 from mv_creator.models import (
     CharacterProfile,
@@ -10,16 +10,16 @@ from mv_creator.models import (
     ImagePrompt,
     MVVisualPlan,
     ScenePlan,
-    ScriptBeat,
+    MVBeat,
     ShotPlan,
     SongSection,
     SunoMusicParams,
-    VideoPrompt,
+    MVEditingPrompt,
 )
 
 
-class ScriptList(BaseModel):
-    items: list[ScriptBeat] = Field(default_factory=list)
+class MVBeatList(BaseModel):
+    items: list[MVBeat] = Field(default_factory=list)
 
 
 class CharacterList(BaseModel):
@@ -36,7 +36,7 @@ class ShotList(BaseModel):
 
 class PromptBundle(BaseModel):
     image_prompts: list[ImagePrompt] = Field(default_factory=list)
-    video_prompts: list[VideoPrompt] = Field(default_factory=list)
+    editing_prompts: list[MVEditingPrompt] = Field(default_factory=list, validation_alias=AliasChoices("editing_prompts", "video_prompts"))
 
 
 class ContinuityReport(BaseModel):
@@ -50,6 +50,7 @@ class RevisionResult(BaseModel):
 class SunoMusicParamsSchema(BaseModel):
     lyrics: str = Field(description="Suno向けメタタグ付き歌詞")
     style: str = Field(default="", description="SunoのStyle指定")
+    estimated_duration_seconds: int = Field(default=0, ge=0, le=900, description="生成した歌詞に適した楽曲尺")
     weirdness: int = Field(default=50, ge=0, le=100, description="Weirdness (0-100)")
     style_influence: int = Field(default=80, ge=0, le=100, description="Style Influence (0-100)")
     audio_influence: int = Field(default=50, ge=0, le=100, description="Audio Influence (0-100)")

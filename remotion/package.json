@@ -6,7 +6,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "render": "remotion render src/index.ts VimaxTimelineVideo"
+    "render": "remotion render src/index.ts MVTimelineVideo"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.340",

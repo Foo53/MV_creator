@@ -10,7 +10,7 @@ export type TimelineShot = {
   status: string;
   duration_seconds: number;
   caption: string;
-  narration: string;
+  editing_notes: string;
   motion: {
     type: string;
     start_scale: number;
@@ -29,17 +29,15 @@ export type TimelineShot = {
 export type TimelineManifest = {
   project: string;
   title: string;
-  output_mode: string;
   fps: number;
   width: number;
   height: number;
   shots: TimelineShot[];
   lyrics_timeline: Record<string, string[]>;
   audio: Record<string, string | null>;
-  todos: string[];
 };
 
-export const VimaxTimelineVideo: React.FC<TimelineManifest> = ({title, shots, fps, output_mode, lyrics_timeline, audio}) => {
+export const MVTimelineVideo: React.FC<TimelineManifest> = ({title, shots, fps, lyrics_timeline, audio}) => {
   if (!shots || shots.length === 0) {
     return (
       <AbsoluteFill style={{backgroundColor: '#111827', color: 'white', alignItems: 'center', justifyContent: 'center'}}>
@@ -47,7 +45,6 @@ export const VimaxTimelineVideo: React.FC<TimelineManifest> = ({title, shots, fp
       </AbsoluteFill>
     );
   }
-  const isMV = output_mode === 'mv';
   let elapsedFrames = 0;
 
   return (
@@ -66,7 +63,6 @@ export const VimaxTimelineVideo: React.FC<TimelineManifest> = ({title, shots, fp
           <Sequence key={shot.shot_id} from={from} durationInFrames={durationInFrames}>
             <ShotScene
               shot={shot}
-              isMV={isMV}
               lyricsLines={lyrics_timeline?.[shot.shot_id] || []}
               transitionInFrames={transitionInFrames}
               isLast={index === shots.length - 1}

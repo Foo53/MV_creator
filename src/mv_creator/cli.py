@@ -78,14 +78,11 @@ def main(argv: list[str] | None = None) -> None:
                 project=args.project,
                 provider=provider,
                 output_root=output_root,
-                audience=args.audience,
-                style=args.style,
-                duration_seconds=args.duration_seconds,
-                genre=args.genre,
-                mood=args.mood,
-                color_tone=args.color_tone,
-                narration_style=args.narration_style,
-                target_platform=args.target_platform,
+                visual_style=args.visual_style,
+                music_genre=args.music_genre,
+                music_mood=args.music_mood,
+                visual_palette=args.visual_palette,
+                release_format=args.release_format,
             )
         except ProviderError as exc:
             _print_provider_error(exc)
@@ -102,14 +99,11 @@ def main(argv: list[str] | None = None) -> None:
                 project=args.project,
                 provider=provider,
                 output_root=output_root,
-                audience=args.audience,
-                style=args.style,
-                duration_seconds=args.duration_seconds,
-                genre=args.genre,
-                mood=args.mood,
-                color_tone=args.color_tone,
-                narration_style=args.narration_style,
-                target_platform=args.target_platform,
+                visual_style=args.visual_style,
+                music_genre=args.music_genre,
+                music_mood=args.music_mood,
+                visual_palette=args.visual_palette,
+                release_format=args.release_format,
             )
         except ProviderError as exc:
             _print_provider_error(exc)
@@ -174,21 +168,18 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _add_provider_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--provider", choices=["gemini", "claude", "mock"], default="mock")
-    parser.add_argument("--model", default="gemini-2.5-flash")
+    parser.add_argument("--provider", choices=["gemini", "claude", "codex", "mock"], default="mock")
+    parser.add_argument("--model")
 
 
 def _add_common_generation_args(parser: argparse.ArgumentParser) -> None:
     _add_provider_args(parser)
     parser.add_argument("--project", required=True)
-    parser.add_argument("--audience", default="general")
-    parser.add_argument("--style", default="cinematic")
-    parser.add_argument("--duration-seconds", type=int, default=60)
-    parser.add_argument("--genre", default="")
-    parser.add_argument("--mood", default="")
-    parser.add_argument("--color-tone", default="")
-    parser.add_argument("--narration-style", default="")
-    parser.add_argument("--target-platform", default="")
+    parser.add_argument("--visual-style", default="cinematic")
+    parser.add_argument("--music-genre", default="")
+    parser.add_argument("--music-mood", default="")
+    parser.add_argument("--visual-palette", default="")
+    parser.add_argument("--release-format", default="youtube")
 
 
 def _print_done(project: str, output_root: Path, design) -> None:

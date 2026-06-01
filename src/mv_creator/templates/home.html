@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}ViMax Lite - 新規制作{% endblock %}
+{% block title %}MV Creator - 新規制作{% endblock %}
 {% block content %}
 <div class="grid">
   <section class="panel">
@@ -25,34 +25,24 @@
         <input name="music_style" placeholder="例: J-Pop, mid-tempo, piano and synth, emotional vocals">
         <p class="help">入力歌詞は書き直さず、そのまま曲構成分析と静止画MV設計に使います。</p>
       </div>
-      <label>想定視聴者</label>
-      <select name="audience">
-        {% for option in audience_options %}
-          <option value="{{ option.value }}">{{ option.label }}</option>
-        {% endfor %}
-      </select>
-      <p class="help">視聴者を選ぶと、脚本の密度、言葉遣い、画面のテンポを調整しやすくなります。</p>
-      <label>映像スタイル</label>
-      <select name="style">
+      <label>MVビジュアルスタイル</label>
+      <select name="visual_style">
         {% for option in style_options %}
           <option value="{{ option.value }}">{{ option.label }}</option>
         {% endfor %}
       </select>
-      <label>出力モード</label>
-      <input value="Music Video (MV)" disabled>
-      <p class="help">静止画、BGM、歌詞字幕を組み合わせるMV専用モードです。</p>
       <div class="inline-fields">
         <div>
-          <label>ジャンル</label>
-          <select name="genre">
+          <label>楽曲ジャンル</label>
+          <select name="music_genre">
             {% for option in genre_options %}
               <option value="{{ option.value }}">{{ option.label }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label>雰囲気</label>
-          <select name="mood">
+          <label>楽曲ムード</label>
+          <select name="music_mood">
             {% for option in mood_options %}
               <option value="{{ option.value }}">{{ option.label }}</option>
             {% endfor %}
@@ -61,43 +51,20 @@
       </div>
       <div class="inline-fields">
         <div>
-          <label>色調</label>
-          <select name="color_tone">
-            {% for option in color_tone_options %}
-              <option value="{{ option.value }}">{{ option.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label>字幕の文体</label>
-          <select name="narration_style">
-            {% for option in narration_style_options %}
+          <label>MVカラーパレット</label>
+          <select name="visual_palette">
+            {% for option in visual_palette_options %}
               <option value="{{ option.value }}">{{ option.label }}</option>
             {% endfor %}
           </select>
         </div>
       </div>
-      <label>配信プラットフォーム</label>
-      <select name="target_platform">
-        {% for option in target_platform_options %}
+      <label>公開フォーマット</label>
+      <select name="release_format">
+        {% for option in release_format_options %}
           <option value="{{ option.value }}">{{ option.label }}</option>
         {% endfor %}
       </select>
-      <div class="inline-fields">
-        <div>
-          <label>想定尺（秒）</label>
-          <input id="duration_seconds" name="duration_seconds" type="number" value="60" min="1" step="1" inputmode="numeric">
-          <p class="help">1秒単位で直接入力できます。</p>
-        </div>
-        <div>
-          <label>尺プリセット</label>
-          <div class="preset-row" aria-label="想定尺プリセット">
-            {% for seconds in duration_presets %}
-              <button class="button ghost" type="button" data-duration="{{ seconds }}">{{ seconds }}秒</button>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
       <div class="inline-fields">
         <div>
           <label>Provider</label>
@@ -105,6 +72,7 @@
             <option value="mock">mock</option>
             <option value="gemini">gemini</option>
             <option value="claude">claude</option>
+            <option value="codex">codex</option>
           </select>
         </div>
         <div>
@@ -116,7 +84,7 @@
           </select>
         </div>
       </div>
-      <p class="help">mock はAPI不要です。歌詞や映像設計を実生成する場合は gemini または Claude Code CLI を使います。</p>
+      <p class="help">mock はAPI不要です。歌詞や映像設計を実生成する場合は gemini、Claude Code CLI、Codex CLI を使います。</p>
       <p><button type="submit">制作設計を生成</button></p>
     </form>
   </section>
@@ -137,7 +105,6 @@
 {% block head %}
 <script>
   document.addEventListener("DOMContentLoaded", () => {
-    const durationInput = document.querySelector("#duration_seconds");
     const creationMode = document.querySelector("#creation_mode");
     const updateCreationMode = () => {
       document.querySelectorAll("[data-creation-mode]").forEach((panel) => {
@@ -146,12 +113,6 @@
     };
     creationMode.addEventListener("change", updateCreationMode);
     updateCreationMode();
-    document.querySelectorAll("[data-duration]").forEach((button) => {
-      button.addEventListener("click", () => {
-        durationInput.value = button.dataset.duration;
-        durationInput.focus();
-      });
-    });
   });
 </script>
 {% endblock %}

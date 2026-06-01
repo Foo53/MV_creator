@@ -61,7 +61,7 @@ class RAGStore:
                 kind="shot",
                 text=(
                     f"{shot.shot_id} in {shot.scene_id}: {shot.description}. Camera: {shot.camera}. "
-                    f"First: {shot.first_frame}. Last: {shot.last_frame}. Lighting: {shot.lighting}."
+                    f"Motion start: {shot.motion_start}. Motion end: {shot.motion_end}. Lighting: {shot.lighting}."
                 ),
                 metadata={"shot_id": shot.shot_id, "scene_id": shot.scene_id},
             )

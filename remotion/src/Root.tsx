@@ -1,25 +1,23 @@
 import React from 'react';
 import {Composition} from 'remotion';
-import {TimelineManifest, VimaxTimelineVideo} from './VimaxTimelineVideo';
+import {MVTimelineVideo, TimelineManifest} from './MVTimelineVideo';
 
 const defaultProps: TimelineManifest = {
   project: 'preview',
-  title: 'ViMax Lite Preview',
-  output_mode: 'remotion',
+  title: 'MV Creator Preview',
   fps: 30,
   width: 1920,
   height: 1080,
   shots: [],
   lyrics_timeline: {},
-  audio: {bgm: null, se: null, narration: null},
-  todos: [],
+  audio: {bgm: null},
 };
 
 export const Root: React.FC = () => {
   return (
     <Composition
-      id="VimaxTimelineVideo"
-      component={VimaxTimelineVideo}
+      id="MVTimelineVideo"
+      component={MVTimelineVideo}
       defaultProps={defaultProps}
       fps={30}
       width={1920}

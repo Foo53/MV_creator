@@ -37,7 +37,7 @@ class TimelineShot(BaseModel):
     status: str = "missing"
     duration_seconds: float = 5.0
     caption: str
-    narration: str
+    editing_notes: str
     motion: TimelineMotion = Field(default_factory=TimelineMotion)
     transition: TimelineTransition = Field(default_factory=TimelineTransition)
 
@@ -45,14 +45,12 @@ class TimelineShot(BaseModel):
 class TimelineManifest(BaseModel):
     project: str
     title: str
-    output_mode: str = "mv"
     fps: int = 30
     width: int = 1920
     height: int = 1080
     shots: list[TimelineShot] = Field(default_factory=list)
     lyrics_timeline: dict[str, list[str]] = Field(default_factory=dict)
-    audio: dict[str, str | None] = Field(default_factory=lambda: {"bgm": None, "se": None, "narration": None})
-    todos: list[str] = Field(default_factory=list)
+    audio: dict[str, str | None] = Field(default_factory=lambda: {"bgm": None})
 
 
 class VideoRenderResult(BaseModel):
@@ -73,12 +71,12 @@ def build_timeline_manifest(
 ) -> TimelineManifest:
     paths = ProjectPaths.for_project(project, output_root)
     design = ProductionDesign.model_validate_json(paths.design_json.read_text(encoding="utf-8"))
-    video_prompt_by_shot = {prompt.shot_id: prompt for prompt in design.video_prompts}
+    editing_prompt_by_shot = {prompt.shot_id: prompt for prompt in design.editing_prompts}
     shots: list[TimelineShot] = []
     ordered_shots = sorted(design.shots, key=lambda item: item.order)
-    durations = _normalized_shot_durations(design, ordered_shots, video_prompt_by_shot)
+    durations = _normalized_shot_durations(design, ordered_shots)
     for index, shot in enumerate(ordered_shots):
-        video_prompt = video_prompt_by_shot.get(shot.shot_id)
+        editing_prompt = editing_prompt_by_shot.get(shot.shot_id)
         image_path = _resolve_shot_image(paths, shot.shot_id, index)
         image_exists = bool(image_path and image_path.exists())
         motion = _motion_for_shot(shot.motion, index)
@@ -91,7 +89,7 @@ def build_timeline_manifest(
                 status="ready" if image_exists else "missing",
                 duration_seconds=durations[index],
                 caption=_caption_for_shot(shot),
-                narration=_narration_for_shot(shot.description, shot.audio, video_prompt.temporal_notes if video_prompt else ""),
+                editing_notes=_editing_notes_for_shot(shot.description, shot.music_sync_notes, editing_prompt.temporal_notes if editing_prompt else ""),
                 motion=motion,
                 transition=TimelineTransition(
                     type="cut" if index == 0 else shot.transition_type,
@@ -99,26 +97,21 @@ def build_timeline_manifest(
                 ),
             )
         )
-    platform_w, platform_h = _platform_resolution(design.brief.target_platform)
+    platform_w, platform_h = _format_resolution(design.brief.release_format)
     lyrics_timeline = _build_lyrics_timeline(design, shots)
-    audio = {"bgm": None, "se": None, "narration": None}
+    audio = {"bgm": None}
     if design.suno_params and design.suno_params.audio_path:
         audio_path = paths.root / design.suno_params.audio_path
         audio["bgm"] = _file_uri_or_none(audio_path)
     return TimelineManifest(
         project=project,
         title=design.brief.title,
-        output_mode=design.brief.output_mode,
         fps=fps,
         width=width if width != 1920 or not platform_w else platform_w,
         height=height if height != 1080 or not platform_h else platform_h,
         shots=shots,
         lyrics_timeline=lyrics_timeline,
         audio=audio,
-        todos=[
-            "SEトラックをショット単位で指定し、雨音やUI音などを追加する。",
-            "TTSProviderを実装し、narrationから読み上げ音声を生成して重ねる。",
-        ],
     )
 
 
@@ -134,7 +127,7 @@ def render_timeline_with_remotion(
     project: str,
     output_root: Path = Path("outputs"),
     repo_root: Path = Path("."),
-    composition_id: str = "VimaxTimelineVideo",
+    composition_id: str = "MVTimelineVideo",
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> VideoRenderResult:
     paths = ProjectPaths.for_project(project, output_root)
@@ -232,18 +225,18 @@ def _resolve_shot_image(paths: ProjectPaths, shot_id: str, index: int) -> Path |
 
 
 def _caption_for_shot(shot: ShotPlan) -> str:
-    if shot.narration_caption:
-        return shot.narration_caption.strip()[:80]
+    if shot.lyrics_caption:
+        return shot.lyrics_caption.strip()[:80]
     return shot.description.strip().rstrip("。.")[:80]
 
 
-def _platform_resolution(target_platform: str) -> tuple[int, int]:
+def _format_resolution(release_format: str) -> tuple[int, int]:
     mapping = {
         "tiktok": (1080, 1920),
+        "youtube_shorts": (1080, 1920),
         "instagram_reel": (1080, 1920),
-        "instagram_square": (1080, 1080),
     }
-    return mapping.get(target_platform, (0, 0))
+    return mapping.get(release_format, (0, 0))
 
 
 def _build_lyrics_timeline(design: ProductionDesign, shots: list[TimelineShot]) -> dict[str, list[str]]:
@@ -286,10 +279,10 @@ def _build_lyrics_timeline(design: ProductionDesign, shots: list[TimelineShot]) 
     return timeline
 
 
-def _narration_for_shot(description: str, audio: str, temporal_notes: str) -> str:
+def _editing_notes_for_shot(description: str, music_sync_notes: str, temporal_notes: str) -> str:
     parts = [description.strip()]
-    if audio:
-        parts.append(f"音: {audio.strip()}")
+    if music_sync_notes:
+        parts.append(f"楽曲同期: {music_sync_notes.strip()}")
     if temporal_notes:
         parts.append(temporal_notes.strip())
     return " ".join(parts)
@@ -324,7 +317,6 @@ def _default_duration(design: ProductionDesign) -> float:
 def _normalized_shot_durations(
     design: ProductionDesign,
     shots: list[ShotPlan],
-    video_prompt_by_shot: dict,
 ) -> list[float]:
     durations = [shot.still_duration_seconds or _default_duration(design) for shot in shots]
     total = sum(durations)

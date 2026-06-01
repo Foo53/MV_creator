@@ -1,10 +1,9 @@
 import React from 'react';
 import {AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
-import {TimelineShot} from './VimaxTimelineVideo';
+import {TimelineShot} from './MVTimelineVideo';
 
 type Props = {
   shot: TimelineShot;
-  isMV?: boolean;
   lyricsLines?: string[];
   transitionInFrames?: number;
   isLast?: boolean;
@@ -12,7 +11,7 @@ type Props = {
 
 const META_TAG_RE = /^\[.+\]\s*$/;
 
-export const ShotScene: React.FC<Props> = ({shot, isMV, lyricsLines, transitionInFrames = 0, isLast = false}) => {
+export const ShotScene: React.FC<Props> = ({shot, lyricsLines, transitionInFrames = 0, isLast = false}) => {
   const frame = useCurrentFrame();
   const {durationInFrames, width} = useVideoConfig();
   const fadeOutFrames = isLast ? Math.min(18, Math.floor(durationInFrames * 0.18)) : 0;
@@ -29,7 +28,7 @@ export const ShotScene: React.FC<Props> = ({shot, isMV, lyricsLines, transitionI
   const scale = width / 1920;
   const baseFontSize = 42 * scale;
 
-  const currentLyric = isMV && lyricsLines && lyricsLines.length > 0
+  const currentLyric = lyricsLines && lyricsLines.length > 0
     ? lyricAtFrame(lyricsLines, frame, durationInFrames)
     : null;
 
@@ -51,7 +50,7 @@ export const ShotScene: React.FC<Props> = ({shot, isMV, lyricsLines, transitionI
           <div style={{fontSize: 28 * scale, marginTop: 16}}>Missing image</div>
         </AbsoluteFill>
       )}
-      {isMV && currentLyric ? (
+      {currentLyric ? (
         <div
           style={{
             position: 'absolute',

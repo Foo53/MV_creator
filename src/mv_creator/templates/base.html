@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}ViMax Lite{% endblock %}</title>
+  <title>{% block title %}MV Creator{% endblock %}</title>
   <style>
     :root {
       color-scheme: dark;
@@ -234,7 +234,7 @@
 </head>
 <body>
   <header>
-    <a href="/">ViMax Lite</a>
+    <a href="/">MV Creator</a>
     <a href="/">Projects</a>
   </header>
   <main>
@@ -247,7 +247,7 @@
       const filenameFromImage = (image) => {
         if (image.dataset.dragName) return image.dataset.dragName;
         const url = new URL(image.currentSrc || image.src, window.location.href);
-        const last = url.pathname.split("/").filter(Boolean).pop() || "vimax-reference.png";
+        const last = url.pathname.split("/").filter(Boolean).pop() || "mv-creator-reference.png";
         return decodeURIComponent(last).replace(/[^A-Za-z0-9_.-]/g, "_");
       };
 
@@ -369,9 +369,9 @@
         initDropZones();
         initProviderModelPairs();
       });
-      window.vimaxMakeImageDraggable = makeImageDraggable;
-      window.vimaxInitCopyButtons = initCopyButtons;
-      window.vimaxInitDropZones = initDropZones;
+      window.mvCreatorMakeImageDraggable = makeImageDraggable;
+      window.mvCreatorInitCopyButtons = initCopyButtons;
+      window.mvCreatorInitDropZones = initDropZones;
     })();
   </script>
 </body>

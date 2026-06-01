@@ -11,7 +11,8 @@ def write_all_outputs(design: ProductionDesign, root: Path) -> None:
     (root / "design.md").write_text(render_design(design), encoding="utf-8")
     (root / "storyboard.md").write_text(render_storyboard(design), encoding="utf-8")
     (root / "image_prompts.md").write_text(render_image_prompts(design), encoding="utf-8")
-    (root / "video_prompts.md").write_text(render_video_prompts(design), encoding="utf-8")
+    (root / "editing_prompts.md").write_text(render_editing_prompts(design), encoding="utf-8")
+    (root / "video_prompts.md").unlink(missing_ok=True)
     (root / "continuity_report.md").write_text(render_continuity(design), encoding="utf-8")
     (root / "rag_trace.md").write_text(render_rag_trace(design), encoding="utf-8")
     (root / "learning_notes.md").write_text(render_learning_notes(design), encoding="utf-8")
@@ -25,22 +26,18 @@ def render_design(design: ProductionDesign) -> str:
         design.brief.logline,
         "",
         "## 制作ブリーフ",
-        f"- 想定視聴者: {design.brief.audience}",
-        f"- 映像スタイル: {design.brief.style}",
+        f"- MVビジュアルスタイル: {design.brief.visual_style}",
         f"- 想定尺: {design.brief.duration_seconds}秒",
-        f"- 出力モード: {design.brief.output_mode}",
         f"- 制作モード: {design.creation_mode}",
     ]
-    if design.brief.genre:
-        lines.append(f"- ジャンル: {design.brief.genre}")
-    if design.brief.mood:
-        lines.append(f"- 雰囲気: {design.brief.mood}")
-    if design.brief.color_tone:
-        lines.append(f"- 色調: {design.brief.color_tone}")
-    if design.brief.narration_style:
-        lines.append(f"- ナレーション文体: {design.brief.narration_style}")
-    if design.brief.target_platform:
-        lines.append(f"- 配信プラットフォーム: {design.brief.target_platform}")
+    if design.brief.music_genre:
+        lines.append(f"- 楽曲ジャンル: {design.brief.music_genre}")
+    if design.brief.music_mood:
+        lines.append(f"- 楽曲ムード: {design.brief.music_mood}")
+    if design.brief.visual_palette:
+        lines.append(f"- MVカラーパレット: {design.brief.visual_palette}")
+    if design.brief.release_format:
+        lines.append(f"- 公開フォーマット: {design.brief.release_format}")
     lines.extend([
         f"- テーマ: {', '.join(design.brief.themes)}",
         "",
@@ -129,10 +126,10 @@ def render_storyboard(design: ProductionDesign) -> str:
                 f"- 注視点: {shot.focal_point}",
                 f"- 表示尺: {shot.still_duration_seconds}秒",
                 f"- トランジション: {shot.transition_type} ({shot.transition_duration_seconds}秒)",
-                f"- First frame: {shot.first_frame}",
-                f"- Last frame: {shot.last_frame}",
+                f"- パン・ズーム開始構図: {shot.motion_start}",
+                f"- パン・ズーム終了構図: {shot.motion_end}",
                 f"- 照明: {shot.lighting}",
-                f"- 音: {shot.audio}",
+                f"- 楽曲同期メモ: {shot.music_sync_notes}",
                 "",
             ]
         )
@@ -155,13 +152,13 @@ def render_image_prompts(design: ProductionDesign) -> str:
     return "\n".join(lines)
 
 
-def render_video_prompts(design: ProductionDesign) -> str:
-    lines = ["# 動画生成プロンプト", ""]
-    for prompt in design.video_prompts:
+def render_editing_prompts(design: ProductionDesign) -> str:
+    lines = ["# 静止画MV編集メモ", ""]
+    for prompt in design.editing_prompts:
         lines.extend(
             [
                 f"## {prompt.shot_id}",
-                prompt.prompt,
+                prompt.editing_instruction,
                 "",
                 f"尺: {prompt.duration_seconds}秒",
                 f"カメラ移動: {prompt.camera_motion}",

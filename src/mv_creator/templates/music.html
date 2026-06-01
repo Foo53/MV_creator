@@ -7,6 +7,11 @@
     <a class="button secondary" href="/projects/{{ project }}">戻る</a>
   </div>
   <p class="muted">{{ design.brief.logline }}</p>
+  {% if design.brief.duration_seconds %}
+    <p class="help">自動確定した楽曲尺: {{ design.brief.duration_seconds }}秒</p>
+  {% else %}
+    <p class="help">楽曲尺: 未確定（MV映像設計の再生成時に歌詞から自動解析します）</p>
+  {% endif %}
 </section>
 
 <form id="music-params-form" method="post" action="/projects/{{ project }}/music/save">
@@ -55,6 +60,7 @@
           <option value="mock">mock</option>
           <option value="gemini">gemini</option>
           <option value="claude">claude</option>
+          <option value="codex">codex</option>
         </select>
       </div>
       <div>
@@ -95,7 +101,7 @@
 
 <section class="panel">
   <h2>MV映像設計の再生成</h2>
-  <p class="muted">保存済みの歌詞・style・曲構成を上流コンテキストにして、脚本、シーン、ショット、画像プロンプトを作り直します。</p>
+  <p class="muted">保存済みの歌詞・style・曲構成を上流コンテキストにして、MVビート、シーン、ショット、画像プロンプトを作り直します。</p>
   <form method="post" action="/projects/{{ project }}/music/rebuild-visuals">
     <div class="inline-fields">
       <div>
@@ -104,6 +110,7 @@
           <option value="mock">mock</option>
           <option value="gemini">gemini</option>
           <option value="claude">claude</option>
+          <option value="codex">codex</option>
         </select>
       </div>
       <div>
@@ -131,6 +138,7 @@
           <option value="mock">mock</option>
           <option value="gemini">gemini</option>
           <option value="claude">claude</option>
+          <option value="codex">codex</option>
         </select>
       </div>
       <div>

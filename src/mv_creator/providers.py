@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TypeVar
@@ -94,6 +95,85 @@ class ClaudeProvider(LLMProvider):
         return schema_model.model_validate(data)
 
 
+class CodexProvider(LLMProvider):
+    """`codex exec`を使って構造化テキスト生成を行うProvider。"""
+
+    def __init__(self, model: str = "gpt-5.5") -> None:
+        self.model = model
+        self.command = _resolve_codex_command()
+
+    def generate_structured(self, prompt: str, schema_model: type[T]) -> T:
+        with tempfile.TemporaryDirectory(prefix="mv-creator-codex-") as temp:
+            schema_path = Path(temp) / "schema.json"
+            output_path = Path(temp) / "result.json"
+            schema_path.write_text(
+                json.dumps(_codex_strict_schema(schema_model.model_json_schema()), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            command = [
+                self.command,
+                "exec",
+                "--ephemeral",
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--model",
+                self.model,
+                "--output-schema",
+                str(schema_path),
+                "--output-last-message",
+                str(output_path),
+                "-",
+            ]
+            try:
+                result = subprocess.run(
+                    command,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=300,
+                )
+            except FileNotFoundError:
+                raise ProviderError("codex コマンドが見つかりません。Codex CLIをインストールし、新しいターミナルで codex --version を確認してください。")
+            except PermissionError:
+                raise ProviderError("codex コマンドを起動できません。Codex CLIのPATHを確認し、新しいターミナルで codex --version を実行してください。")
+            except subprocess.TimeoutExpired:
+                raise ProviderError("codex exec がタイムアウトしました。")
+            if result.returncode != 0:
+                raise ProviderError(f"codex exec がエラーを返しました: {result.stderr.strip()}")
+            if not output_path.exists():
+                raise ProviderError("codex exec から構造化出力ファイルが返りませんでした。")
+            text = output_path.read_text(encoding="utf-8").strip()
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                raise ProviderError(f"codex exec の応答をJSONとしてパースできませんでした: {text[:300]}")
+            return schema_model.model_validate(data)
+
+
+def _resolve_codex_command() -> str:
+    local_app_data = os.getenv("LOCALAPPDATA")
+    if local_app_data:
+        installed_cli = Path(local_app_data) / "Programs" / "OpenAI" / "Codex" / "bin" / "codex.exe"
+        if installed_cli.exists():
+            return str(installed_cli)
+    return "codex"
+
+
+def _codex_strict_schema(value):
+    if isinstance(value, dict):
+        normalized = {key: _codex_strict_schema(item) for key, item in value.items()}
+        if normalized.get("type") == "object" or "properties" in normalized:
+            normalized["additionalProperties"] = False
+        if "properties" in normalized:
+            normalized["required"] = list(normalized["properties"])
+        return normalized
+    if isinstance(value, list):
+        return [_codex_strict_schema(item) for item in value]
+    return value
+
+
 class MockProvider(LLMProvider):
     """API課金なしで学習・テストするための決定的なProvider。"""
 
@@ -102,11 +182,13 @@ class MockProvider(LLMProvider):
         return schema_model.model_validate(data)
 
 
-def make_provider(kind: str, model: str) -> LLMProvider:
+def make_provider(kind: str, model: str | None) -> LLMProvider:
     if kind == "gemini":
-        return GeminiProvider(model=model)
+        return GeminiProvider(model=model or "gemini-2.5-flash")
     if kind == "claude":
         return ClaudeProvider()
+    if kind == "codex":
+        return CodexProvider(model=model or "gpt-5.5")
     if kind == "mock":
         return MockProvider()
     raise ProviderError(f"未知のProviderです: {kind}")
@@ -143,51 +225,44 @@ def _idea_from_prompt(prompt: str) -> str:
 
 def _mock_payload(name: str, prompt: str) -> dict:
     idea = _idea_from_prompt(prompt)
-    is_mv = "OUTPUT_MODE: mv" in prompt or '"output_mode": "mv"' in prompt or "Music Video" in prompt
     platform = ""
-    if "配信プラットフォーム: tiktok" in prompt:
+    if "公開フォーマット: tiktok" in prompt:
         platform = "tiktok"
-    elif "配信プラットフォーム: " in prompt:
+    elif "公開フォーマット: " in prompt:
         for line in prompt.split("\n"):
-            if line.strip().startswith("配信プラットフォーム:"):
+            if line.strip().startswith("公開フォーマット:"):
                 platform = line.split(":", 1)[1].strip()
                 break
     if name == "ProductionBrief":
         return {
             "title": "Rain Alley Overture",
             "logline": idea,
-            "audience": "general",
-            "style": "cinematic anime with grounded lighting",
             "duration_seconds": 60,
-            "output_mode": "mv",
-            "genre": "fantasy",
-            "mood": "nostalgic",
-            "color_tone": "cool",
-            "narration_style": "",
-            "target_platform": platform,
+            "music_genre": "j-pop",
+            "music_mood": "nostalgic",
+            "visual_style": "cinematic anime with grounded lighting",
+            "visual_palette": "neon-night",
+            "release_format": platform or "youtube",
             "themes": ["孤独", "好奇心", "創造性の目覚め"],
             "visual_rules": ["雨の反射", "暖かいネオン", "ロボットのシルエットを固定"],
-            "negative_constraints": ["動画生成はしない", "キャラクターデザインを急に変えない"],
+            "negative_constraints": ["複数カットを一枚に詰め込まない", "キャラクターデザインを急に変えない"],
         }
-    if name == "ScriptList":
+    if name == "MVBeatList":
         return {
             "items": [
                 {
                     "beat_id": "beat_001",
                     "summary": "配達ロボットが雨の路地で遠くの音楽を聞いて立ち止まる。",
-                    "dialogue": [],
                     "emotional_purpose": "孤独と好奇心を示す。",
                 },
                 {
                     "beat_id": "beat_002",
                     "summary": "ロボットは自販機の下で光る壊れたオルゴールを見つける。",
-                    "dialogue": ["Robot: この音の模様は何だろう。"],
                     "emotional_purpose": "発見を描く。",
                 },
                 {
                     "beat_id": "beat_003",
                     "summary": "ロボットが旋律を再生すると、路地の光が応答する。",
-                    "dialogue": [],
                     "emotional_purpose": "変化と余韻で締める。",
                 },
             ]
@@ -202,7 +277,6 @@ def _mock_payload(name: str, prompt: str) -> dict:
                     "personality": "careful, observant, quietly brave, and curious",
                     "appearance": "a small white delivery robot with a square screen face, rounded cargo shell, compact wheels, and a glowing blue status light",
                     "wardrobe": "a yellow rain poncho clipped to the cargo shell, wet from the rain",
-                    "voice": "soft electronic chimes",
                     "continuity_notes": ["always show the glowing blue status light", "keep the yellow rain poncho wet and attached to the cargo shell"],
                 }
             ]
@@ -217,7 +291,7 @@ def _mock_payload(name: str, prompt: str) -> dict:
                     "time_of_day": "夜",
                     "summary": "Miloは雨がネオンを溶かす路地で音楽を聞く。",
                     "characters": ["char_robot"],
-                    "beats": _mock_payload("ScriptList", prompt)["items"][:2],
+                    "mv_beats": _mock_payload("MVBeatList", prompt)["items"][:2],
                     "continuity_requirements": ["黄色いポンチョを維持", "雨は降り続ける"],
                 },
                 {
@@ -227,7 +301,7 @@ def _mock_payload(name: str, prompt: str) -> dict:
                     "time_of_day": "夜",
                     "summary": "Miloが旋律を返すと、環境が光を帯びる。",
                     "characters": ["char_robot"],
-                    "beats": _mock_payload("ScriptList", prompt)["items"][2:],
+                    "mv_beats": _mock_payload("MVBeatList", prompt)["items"][2:],
                     "continuity_requirements": ["同じオルゴール", "同じ青いステータスライト"],
                 },
             ]
@@ -265,12 +339,12 @@ def _mock_payload(name: str, prompt: str) -> dict:
                 }
                 for shot in shots
             ],
-            "video_prompts": [
+            "editing_prompts": [
                 {
                     "shot_id": shot["shot_id"],
-                    "prompt": (
-                        f"{shot['still_image_intent']} Start crop: {shot['first_frame']} "
-                        f"End crop: {shot['last_frame']}. {mv_note}"
+                    "editing_instruction": (
+                        f"{shot['still_image_intent']} Start crop: {shot['motion_start']} "
+                        f"End crop: {shot['motion_end']}. {mv_note}"
                     ).strip(),
                     "duration_seconds": shot["still_duration_seconds"],
                     "camera_motion": shot["motion"],
@@ -324,12 +398,12 @@ def _mock_payload(name: str, prompt: str) -> dict:
             "visual_motifs": ["rain ripples", "blue status light", "music-box glow", "neon reflections"],
             "color_script": ["Intro: cool blue rain", "Verse: muted alley amber", "Chorus: blue and gold bloom", "Outro: soft cyan afterglow"],
             "pacing_notes": ["hold longer in intro", "gentle close-ups in verse", "wider glowing imagery in chorus", "slow final fade in outro"],
-            "section_to_visuals": {
-                "Intro": "wide lonely establishment of the rainy alley",
-                "Verse 1": "intimate discovery of the music box",
-                "Chorus": "street lights react like musical notes",
-                "Outro": "Milo remains in the softened glow",
-            },
+            "section_visuals": [
+                {"section_id": "Intro", "visual_direction": "wide lonely establishment of the rainy alley"},
+                {"section_id": "Verse 1", "visual_direction": "intimate discovery of the music box"},
+                {"section_id": "Chorus", "visual_direction": "street lights react like musical notes"},
+                {"section_id": "Outro", "visual_direction": "Milo remains in the softened glow"},
+            ],
         }
     if name == "ContinuityReport":
         return {"issues": [{"severity": "low", "location": "shot_003", "issue": "オルゴールの琥珀色の光を明示すると連続性が強くなる。", "recommendation": "shot_003とプロンプトに琥珀色の光を追記する。"}]}
@@ -351,6 +425,7 @@ def _mock_payload(name: str, prompt: str) -> dict:
                 "[End]"
             ),
             "style": "cinematic electronic, mid-tempo, synth and piano, soft female vocals, polished, melancholic",
+            "estimated_duration_seconds": 60,
             "weirdness": 55,
             "style_influence": 85,
             "audio_influence": 50,
@@ -439,20 +514,18 @@ def _shot(shot_id: str, scene_id: str, order: int, description: str, camera: str
         "camera": camera,
         "lens": lens,
         "motion": motion,
-        "first_frame": "雨粒が反射する路面から始まる",
-        "last_frame": "Miloの青いライトが画面内に残る",
+        "motion_start": "雨粒が反射する路面から始まる",
+        "motion_end": "Miloの青いライトが画面内に残る",
         "lighting": "青い雨光と暖かい自販機の光",
-        "audio": "雨音と遠いオルゴール",
+        "music_sync_notes": "雨音を思わせるIntroと遠いオルゴールのモチーフに同期",
         "referenced_memory": ["character:char_robot"],
-        "narration_caption": caption,
+        "lyrics_caption": caption,
         **still_details[shot_id],
     }
 
 
 def _aspect_ratio_from_prompt(prompt: str) -> str:
     compact = prompt.replace(" ", "")
-    if '"target_platform":"tiktok"' in compact or '"target_platform":"instagram_reel"' in compact:
+    if '"release_format":"tiktok"' in compact or '"release_format":"instagram_reel"' in compact or '"release_format":"youtube_shorts"' in compact:
         return "9:16"
-    if '"target_platform":"instagram_square"' in compact:
-        return "1:1"
     return "16:9"

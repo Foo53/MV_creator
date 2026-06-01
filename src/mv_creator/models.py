@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 
 def now_iso() -> str:
@@ -14,15 +14,12 @@ def now_iso() -> str:
 class ProductionBrief(BaseModel):
     title: str = Field(description="作品タイトル")
     logline: str = Field(description="作品の短い説明")
-    audience: str = Field(default="general", description="想定視聴者")
-    style: str = Field(default="cinematic", description="映像スタイル")
-    duration_seconds: int = Field(default=60, description="想定尺")
-    output_mode: Literal["mv"] = Field(default="mv", description="出力モード")
-    genre: str = Field(default="", description="作品ジャンル")
-    mood: str = Field(default="", description="雰囲気・ムード")
-    color_tone: str = Field(default="", description="色調")
-    narration_style: str = Field(default="", description="ナレーション・字幕の文体")
-    target_platform: str = Field(default="", description="想定配信プラットフォーム")
+    duration_seconds: int = Field(default=0, ge=0, description="歌詞と曲構成から自動確定した想定尺")
+    music_genre: str = Field(default="", validation_alias=AliasChoices("music_genre", "genre"), description="楽曲ジャンル")
+    music_mood: str = Field(default="", validation_alias=AliasChoices("music_mood", "mood"), description="楽曲のムード")
+    visual_style: str = Field(default="cinematic", validation_alias=AliasChoices("visual_style", "style"), description="静止画MVのビジュアルスタイル")
+    visual_palette: str = Field(default="", validation_alias=AliasChoices("visual_palette", "color_tone"), description="静止画MVのカラーパレット")
+    release_format: str = Field(default="youtube", validation_alias=AliasChoices("release_format", "target_platform"), description="MVの公開フォーマット")
     themes: list[str] = Field(default_factory=list, description="テーマ")
     visual_rules: list[str] = Field(default_factory=list, description="映像上の一貫性ルール")
     negative_constraints: list[str] = Field(default_factory=list, description="避けるべき表現")
@@ -35,14 +32,12 @@ class CharacterProfile(BaseModel):
     personality: str
     appearance: str
     wardrobe: str
-    voice: str = ""
     continuity_notes: list[str] = Field(default_factory=list)
 
 
-class ScriptBeat(BaseModel):
+class MVBeat(BaseModel):
     beat_id: str
     summary: str
-    dialogue: list[str] = Field(default_factory=list)
     emotional_purpose: str
 
 
@@ -53,7 +48,7 @@ class ScenePlan(BaseModel):
     time_of_day: str
     summary: str
     characters: list[str] = Field(default_factory=list)
-    beats: list[ScriptBeat] = Field(default_factory=list)
+    mv_beats: list[MVBeat] = Field(default_factory=list, validation_alias=AliasChoices("mv_beats", "beats"))
     continuity_requirements: list[str] = Field(default_factory=list)
 
 
@@ -65,12 +60,12 @@ class ShotPlan(BaseModel):
     camera: str
     lens: str
     motion: str
-    first_frame: str
-    last_frame: str
+    motion_start: str = Field(validation_alias=AliasChoices("motion_start", "first_frame"), description="静止画に加えるパン・ズームの開始構図")
+    motion_end: str = Field(validation_alias=AliasChoices("motion_end", "last_frame"), description="静止画に加えるパン・ズームの終了構図")
     lighting: str
-    audio: str
+    music_sync_notes: str = Field(validation_alias=AliasChoices("music_sync_notes", "audio"), description="楽曲セクションやビートとの同期メモ")
     referenced_memory: list[str] = Field(default_factory=list)
-    narration_caption: str = Field(default="", description="MV字幕用テキスト")
+    lyrics_caption: str = Field(default="", validation_alias=AliasChoices("lyrics_caption", "narration_caption"), description="MV歌詞字幕用テキスト")
     still_image_intent: str = Field(default="", description="静止画MVでこの一枚が担う役割")
     composition: str = Field(default="", description="一枚絵としての構図と余白")
     focal_point: str = Field(default="center", description="パン・ズームで注目させる被写体や位置")
@@ -87,9 +82,9 @@ class ImagePrompt(BaseModel):
     style_tags: list[str] = Field(default_factory=list)
 
 
-class VideoPrompt(BaseModel):
+class MVEditingPrompt(BaseModel):
     shot_id: str
-    prompt: str
+    editing_instruction: str = Field(validation_alias=AliasChoices("editing_instruction", "prompt"), description="Remotionで静止画MVを編集するための指示")
     duration_seconds: int = 5
     camera_motion: str
     temporal_notes: str
@@ -105,6 +100,7 @@ class ContinuityIssue(BaseModel):
 class SunoMusicParams(BaseModel):
     lyrics: str = Field(description="Suno向けメタタグ付き歌詞")
     style: str = Field(default="", description="SunoのStyle指定")
+    estimated_duration_seconds: int = Field(default=0, ge=0, description="歌詞生成時に自動推定した楽曲尺")
     weirdness: int = Field(default=50, description="Suno Weirdness (0-100)")
     style_influence: int = Field(default=80, description="Suno Style Influence (0-100)")
     audio_influence: int = Field(default=50, description="Suno Audio Influence (0-100)")
@@ -120,12 +116,28 @@ class SongSection(BaseModel):
     estimated_duration_seconds: int = Field(default=0, description="想定尺")
 
 
+class MVSectionVisual(BaseModel):
+    section_id: str = Field(description="歌詞セクションIDまたはラベル")
+    visual_direction: str = Field(description="このセクションでの映像方針")
+
+
 class MVVisualPlan(BaseModel):
     concept: str = Field(description="曲から導いたMV全体の映像コンセプト")
     visual_motifs: list[str] = Field(default_factory=list, description="繰り返し使う象徴・モチーフ")
     color_script: list[str] = Field(default_factory=list, description="曲構成に沿った色味の推移")
     pacing_notes: list[str] = Field(default_factory=list, description="曲のテンポ・展開に合わせた編集方針")
-    section_to_visuals: dict[str, str] = Field(default_factory=dict, description="歌詞セクションごとの映像方針")
+    section_visuals: list[MVSectionVisual] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("section_visuals", "section_to_visuals"),
+        description="歌詞セクションごとの映像方針",
+    )
+
+    @field_validator("section_visuals", mode="before")
+    @classmethod
+    def migrate_section_visuals(cls, value):
+        if isinstance(value, dict):
+            return [{"section_id": key, "visual_direction": direction} for key, direction in value.items()]
+        return value
 
 
 class RAGTraceItem(BaseModel):
@@ -136,12 +148,12 @@ class RAGTraceItem(BaseModel):
 
 class ProductionDesign(BaseModel):
     brief: ProductionBrief
-    script: list[ScriptBeat]
+    mv_beats: list[MVBeat] = Field(validation_alias=AliasChoices("mv_beats", "script"))
     characters: list[CharacterProfile]
     scenes: list[ScenePlan]
     shots: list[ShotPlan]
     image_prompts: list[ImagePrompt]
-    video_prompts: list[VideoPrompt]
+    editing_prompts: list[MVEditingPrompt] = Field(validation_alias=AliasChoices("editing_prompts", "video_prompts"))
     continuity_issues: list[ContinuityIssue] = Field(default_factory=list)
     rag_trace: list[RAGTraceItem] = Field(default_factory=list)
     learning_notes: list[str] = Field(default_factory=list)
