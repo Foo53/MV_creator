@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
@@ -62,6 +63,9 @@ class GeminiProvider(LLMProvider):
 class ClaudeProvider(LLMProvider):
     """`claude -p`を使ってテキスト生成を行うProvider。"""
 
+    def __init__(self) -> None:
+        self.command = shutil.which("claude") or "claude"
+
     def generate_structured(self, prompt: str, schema_model: type[T]) -> T:
         schema_json = schema_model.model_json_schema()
         full_prompt = (
@@ -72,10 +76,11 @@ class ClaudeProvider(LLMProvider):
         )
         try:
             result = subprocess.run(
-                ["claude", "-p", full_prompt],
+                [self.command, "-p"],
+                input=full_prompt,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=600,
             )
         except FileNotFoundError:
             raise ProviderError("claude コマンドが見つかりません。Claude Code CLIをインストールしてください。")
@@ -83,11 +88,9 @@ class ClaudeProvider(LLMProvider):
             raise ProviderError("claude -p がタイムアウトしました。")
         if result.returncode != 0:
             raise ProviderError(f"claude -p がエラーを返しました: {result.stderr.strip()}")
-        text = result.stdout.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = [line for line in lines if not line.strip().startswith("```")]
-            text = "\n".join(lines).strip()
+        text = _extract_json(result.stdout)
+        if text is None:
+            raise ProviderError(f"claude -p の応答をJSONとしてパースできませんでした: {result.stdout[:300]}")
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
@@ -150,6 +153,28 @@ class CodexProvider(LLMProvider):
             except json.JSONDecodeError:
                 raise ProviderError(f"codex exec の応答をJSONとしてパースできませんでした: {text[:300]}")
             return schema_model.model_validate(data)
+
+
+def _extract_json(text: str) -> str | None:
+    """レスポンス本文からJSON文字列を抽出する。コードブロックや前置きテキストに対応。"""
+    import re
+    # ```json ... ``` 内を探す
+    m = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    # 最初の { から最後の } まで
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
 
 
 def _resolve_codex_command() -> str:
