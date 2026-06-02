@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from statistics import median, quantiles
 
+from typing import Literal
+
 from pydantic import AliasChoices, BaseModel, Field, computed_field
 
 from mv_creator.models import (
@@ -37,6 +39,22 @@ class ShotList(BaseModel):
 class PromptBundle(BaseModel):
     image_prompts: list[ImagePrompt] = Field(default_factory=list)
     editing_prompts: list[MVEditingPrompt] = Field(default_factory=list, validation_alias=AliasChoices("editing_prompts", "video_prompts"))
+
+
+class SlideshowSlide(BaseModel):
+    section_id: str = Field(description="対応する歌詞セクションIDまたはラベル")
+    description: str = Field(description="表示する一枚絵の内容")
+    lyrics_caption: str = Field(default="", description="画像表示中に重ねる歌詞字幕")
+    image_prompt: str = Field(description="ChatGPT画像生成へ渡す英語プロンプト")
+    duration_seconds: float = Field(gt=0, description="画像を表示する秒数")
+    motion: Literal["hold", "slow zoom in", "slow zoom out", "slow pan left", "slow pan right", "slow pan up", "slow pan down"] = Field(
+        default="hold",
+        description="静止画に加える控えめな動き",
+    )
+
+
+class SlideshowOutline(BaseModel):
+    slides: list[SlideshowSlide] = Field(default_factory=list)
 
 
 class SlideshowBundle(BaseModel):

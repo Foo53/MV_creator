@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Callable
 
-from mv_creator.models import MVVisualPlan, ProductionBrief, ProductionDesign, SongSection, SunoMusicParams
+from mv_creator.models import ImagePrompt, MVEditingPrompt, MVVisualPlan, ProductionBrief, ProductionDesign, ShotPlan, SongSection, SunoMusicParams
 from mv_creator.providers import LLMProvider
 from mv_creator.rag import RAGStore
-from mv_creator.schemas import CharacterList, ContinuityReport, MVBeatList, MVVisualPlanSchema, PromptBundle, RevisionResult, SceneList, ShotList, SlideshowBundle, SongSectionList, SunoMusicParamsSchema, ViralChallenge, ViralScore
+from mv_creator.schemas import CharacterList, ContinuityReport, MVBeatList, MVVisualPlanSchema, PromptBundle, RevisionResult, SceneList, ShotList, SlideshowBundle, SlideshowOutline, SongSectionList, SunoMusicParamsSchema, ViralChallenge, ViralScore
 
 
 class Agent:
@@ -526,12 +526,11 @@ class SlideshowPlannerAgent(Agent):
 
 要件:
 - 歌詞セクションごとに1枚を基本とし、長いセクションだけ必要に応じて2枚へ分けてください。
-- shots、image_prompts、editing_prompts は同じ shot_id で対応させてください。
 - 各画像は単独の一枚絵として成立させ、歌詞字幕を重ねる余白を確保してください。
-- image_prompts.prompt と image_prompts.negative_prompt はChatGPT画像生成へ渡せる英語で書いてください。
-- editing_prompts は静止画の hold、slow zoom、slow pan、crossfade を中心にしてください。
+- image_prompt はChatGPT画像生成へそのまま渡せる英語で書いてください。
+- motion は hold、slow zoom、slow pan から曲の雰囲気に合うものを選んでください。
 - recurring character は歌詞に不可欠な場合だけ使い、不要なら雰囲気や情景を優先してください。
-- still_duration_seconds の合計は制作ブリーフの duration_seconds におおむね合わせてください。
+- duration_seconds の合計は制作ブリーフの duration_seconds におおむね合わせてください。
 {still_image_mv_instruction()}
 
 制作ブリーフ:
@@ -543,7 +542,66 @@ Sunoパラメータ:
 曲構成:
 {[section.model_dump() for section in song_sections]}
 """
-        return self.provider.generate_structured(prompt, SlideshowBundle)
+        outline = self.provider.generate_structured(prompt, SlideshowOutline)
+        return _expand_slideshow_outline(outline, brief)
+
+
+def _expand_slideshow_outline(outline: SlideshowOutline, brief: ProductionBrief) -> SlideshowBundle:
+    shots: list[ShotPlan] = []
+    image_prompts: list[ImagePrompt] = []
+    editing_prompts: list[MVEditingPrompt] = []
+    negative_prompt = "multiple panels, split screen, storyboard, collage, embedded text, subtitles, logo, watermark, motion blur"
+    aspect_ratio = "9:16" if brief.release_format in {"tiktok", "instagram_reel", "youtube_shorts"} else "16:9"
+    for index, slide in enumerate(outline.slides, start=1):
+        shot_id = f"shot_{index:03d}"
+        motion_start, motion_end = _motion_frames(slide.motion)
+        shots.append(
+            ShotPlan(
+                shot_id=shot_id,
+                scene_id=slide.section_id,
+                order=index,
+                description=slide.description,
+                camera="static still image",
+                lens="not applicable",
+                motion=slide.motion,
+                motion_start=motion_start,
+                motion_end=motion_end,
+                lighting="follow the image prompt",
+                music_sync_notes=f"{slide.section_id}: match the lyrics and musical mood",
+                lyrics_caption=slide.lyrics_caption,
+                still_image_intent=slide.description,
+                composition="single still image with clean subtitle-safe negative space",
+                focal_point="main subject",
+                still_duration_seconds=slide.duration_seconds,
+                transition_type="crossfade",
+                transition_duration_seconds=0.6,
+            )
+        )
+        image_prompts.append(
+            ImagePrompt(
+                shot_id=shot_id,
+                prompt=slide.image_prompt,
+                negative_prompt=negative_prompt,
+                aspect_ratio=aspect_ratio,
+                style_tags=["single still image", "subtitle-safe composition"],
+            )
+        )
+        editing_prompts.append(
+            MVEditingPrompt(
+                shot_id=shot_id,
+                editing_instruction=f"Display as a still image with {slide.motion} and a soft crossfade. Preserve subtitle-safe negative space.",
+                duration_seconds=max(1, round(slide.duration_seconds)),
+                camera_motion=slide.motion,
+                temporal_notes=f"{slide.section_id}: synchronize the slide change with the song section.",
+            )
+        )
+    return SlideshowBundle(shots=shots, image_prompts=image_prompts, editing_prompts=editing_prompts)
+
+
+def _motion_frames(motion: str) -> tuple[str, str]:
+    if motion == "hold":
+        return "full composition", "full composition"
+    return "full composition", motion
 
 
 class MVVisualPlannerAgent(Agent):

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mv_creator.cli import main
 from mv_creator.models import MVVisualPlan, ProductionBrief, ProductionDesign, ProjectPaths, SunoMusicParams
 from mv_creator.providers import CodexProvider, MockProvider, _codex_strict_schema, make_provider
-from mv_creator.schemas import MVVisualPlanSchema, SunoMusicParamsSchema, ViralScore
+from mv_creator.schemas import MVVisualPlanSchema, SlideshowOutline, SunoMusicParamsSchema, ViralScore
 from mv_creator.timeline import build_timeline_manifest, write_timeline_manifest
 from mv_creator.web_app import _run_generation_job, _run_lyrics_improve_job, create_app, jobs
 
@@ -45,6 +45,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(command[command.index("--sandbox") + 1], "read-only")
             self.assertEqual(command[command.index("--model") + 1], "gpt-5.5")
             self.assertTrue(kwargs["input"].startswith("USER_INPUT:"))
+            self.assertEqual(kwargs["timeout"], 600)
             output_path = Path(command[command.index("--output-last-message") + 1])
             output_path.write_text(
                 json.dumps({"title": "Codex MV", "logline": "Codex generated brief"}, ensure_ascii=False),
@@ -71,6 +72,14 @@ class PipelineTest(unittest.TestCase):
         section_visual = schema["$defs"]["MVSectionVisual"]
         self.assertFalse(section_visual["additionalProperties"])
         self.assertEqual(set(section_visual["required"]), {"section_id", "visual_direction"})
+
+    def test_slideshow_outline_keeps_codex_payload_compact(self) -> None:
+        schema = _codex_strict_schema(SlideshowOutline.model_json_schema())
+        slide = schema["$defs"]["SlideshowSlide"]
+        self.assertEqual(
+            set(slide["properties"]),
+            {"section_id", "description", "lyrics_caption", "image_prompt", "duration_seconds", "motion"},
+        )
 
     def test_legacy_mv_section_visual_dict_is_migrated(self) -> None:
         plan = MVVisualPlan.model_validate(

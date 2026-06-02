@@ -135,7 +135,7 @@ class CodexProvider(LLMProvider):
                     capture_output=True,
                     text=True,
                     encoding="utf-8",
-                    timeout=300,
+                    timeout=600,
                 )
             except FileNotFoundError:
                 raise ProviderError("codex コマンドが見つかりません。Codex CLIをインストールし、新しいターミナルで codex --version を確認してください。")
@@ -380,13 +380,21 @@ def _mock_payload(name: str, prompt: str) -> dict:
                 for shot in shots
             ],
         }
-    if name == "SlideshowBundle":
+    if name == "SlideshowOutline":
         shots = _mock_payload("ShotList", prompt)["items"]
         prompts = _mock_payload("PromptBundle", prompt)
         return {
-            "shots": shots,
-            "image_prompts": prompts["image_prompts"],
-            "editing_prompts": prompts["editing_prompts"],
+            "slides": [
+                {
+                    "section_id": shot["scene_id"],
+                    "description": shot["description"],
+                    "lyrics_caption": shot["lyrics_caption"],
+                    "image_prompt": image_prompt["prompt"],
+                    "duration_seconds": shot["still_duration_seconds"],
+                    "motion": "slow zoom in",
+                }
+                for shot, image_prompt in zip(shots, prompts["image_prompts"])
+            ],
         }
     if name == "SongSectionList":
         return {
