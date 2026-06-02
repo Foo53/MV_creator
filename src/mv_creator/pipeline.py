@@ -5,18 +5,12 @@ from pathlib import Path
 from typing import Callable
 
 from mv_creator.agents import (
-    CharacterAgent,
     ContinuityCriticAgent,
     IdeationAgent,
-    MVBeatPlannerAgent,
-    MVVisualPlannerAgent,
     MusicAgent,
-    PromptEngineerAgent,
     RevisionAgent,
-    ScenePlannerAgent,
-    ShotDirectorAgent,
+    SlideshowPlannerAgent,
     SongAnalysisAgent,
-    build_mv_context,
 )
 from mv_creator.models import ProductionDesign, ProjectPaths, SunoMusicParams
 from mv_creator.providers import LLMProvider
@@ -49,10 +43,9 @@ def run_idea_pipeline(
 ) -> ProductionDesign:
     paths = ProjectPaths.for_project(project, output_root)
     init_project(paths)
-    rag = RAGStore(paths.rag_store)
-    _notify(progress, "brief", "企画整理エージェントで制作ブリーフを生成しています", 1, 11)
+    _notify(progress, "brief", "企画整理エージェントで制作ブリーフを生成しています", 1, 5)
     brief = IdeationAgent(provider).run(idea, visual_style=visual_style, music_genre=music_genre, music_mood=music_mood, visual_palette=visual_palette, release_format=release_format)
-    return _run_common(brief, provider, rag, paths, progress, creation_mode="idea_to_mv")
+    return _run_common(brief, provider, paths, progress, creation_mode="idea_to_mv")
 
 
 def run_lyrics_pipeline(
@@ -71,8 +64,7 @@ def run_lyrics_pipeline(
 ) -> ProductionDesign:
     paths = ProjectPaths.for_project(project, output_root)
     init_project(paths)
-    rag = RAGStore(paths.rag_store)
-    _notify(progress, "brief", "入力歌詞から静止画MVの制作ブリーフを抽出しています", 1, 10)
+    _notify(progress, "brief", "入力歌詞から静止画MVの制作ブリーフを抽出しています", 1, 4)
     brief = IdeationAgent(provider).run(
         lyrics,
         visual_style=visual_style,
@@ -86,7 +78,6 @@ def run_lyrics_pipeline(
     return _run_common(
         brief,
         provider,
-        rag,
         paths,
         progress,
         suno_params=suno_params,
@@ -120,43 +111,25 @@ def rebuild_mv_visual_design(
     if design.suno_params is None:
         design.suno_params = MusicAgent(provider).run(design.brief)
 
-    rag = RAGStore(paths.rag_store)
-    _notify(progress, "song-analysis", "編集済みの歌詞とstyleを曲構成へ分解しています", 1, 7)
+    _notify(progress, "song-analysis", "編集済みの歌詞とstyleを曲構成へ分解しています", 1, 3)
     song_sections = SongAnalysisAgent(provider).run(design.brief, design.suno_params)
     finalize_song_duration(design.brief, design.suno_params, song_sections)
-    _notify(progress, "mv-visual-plan", "曲に準拠するMV映像方針を再生成しています", 2, 7)
-    mv_visual_plan = MVVisualPlannerAgent(provider).run(design.brief, design.suno_params, song_sections)
-    mv_context = build_mv_context(
-        suno_params=design.suno_params,
-        song_sections=song_sections,
-        mv_visual_plan=mv_visual_plan,
-    )
+    _notify(progress, "slideshow", "歌詞セクションに合う画像スライドを再設計しています", 2, 3)
+    slideshow = SlideshowPlannerAgent(provider).run(design.brief, design.suno_params, song_sections)
 
-    _notify(progress, "mv-beats", "MV方針に沿ってMVビートを再生成しています", 3, 7)
-    mv_beats = MVBeatPlannerAgent(provider).run(design.brief, mv_context=mv_context)
-    _notify(progress, "characters", "MV方針に沿ってキャラクター設定を再生成しています", 4, 7)
-    characters = CharacterAgent(provider).run(design.brief, mv_beats, rag, mv_context=mv_context)
-    _notify(progress, "scenes", "歌詞セクションに沿ってシーン構成を再生成しています", 5, 7)
-    scenes = ScenePlannerAgent(provider).run(design.brief, mv_beats, characters, rag, mv_context=mv_context)
-    _notify(progress, "shots", "曲展開に沿ってショット設計を再生成しています", 6, 7)
-    shots = ShotDirectorAgent(provider).run(design.brief, scenes, characters, rag, mv_context=mv_context)
-    prompts = PromptEngineerAgent(provider).run(design.brief, shots, rag, mv_context=mv_context)
-
-    design.mv_beats = mv_beats.items
-    design.characters = characters.items
-    design.scenes = scenes.items
-    design.shots = shots.items
-    design.image_prompts = prompts.image_prompts
-    design.editing_prompts = prompts.editing_prompts
+    design.mv_beats = []
+    design.characters = []
+    design.scenes = []
+    design.shots = slideshow.shots
+    design.image_prompts = slideshow.image_prompts
+    design.editing_prompts = slideshow.editing_prompts
     design.song_sections = song_sections
-    design.mv_visual_plan = mv_visual_plan
-    design.rag_trace = rag.trace
-    design.learning_notes.append("MV再設計: 編集済みのSuno歌詞・style・曲構成を上流コンテキストとして、MVビートから画像プロンプトまで再生成しました。")
+    design.mv_visual_plan = None
+    design.rag_trace = []
+    design.continuity_issues = []
+    design.learning_notes.append("画像スライド再設計: 編集済みのSuno歌詞・style・曲構成から、表示画像と静止画編集指示を直接再生成しました。")
 
-    _notify(progress, "critic", "再生成したMV映像設計の一貫性を確認しています", 7, 7)
-    report = ContinuityCriticAgent(provider).run(design, rag)
-    design.continuity_issues = report.issues
-    rag.save()
+    _notify(progress, "design", "画像スライド設計を保存しています", 3, 3)
     write_all_outputs(design, paths.root)
     return design
 
@@ -164,14 +137,13 @@ def rebuild_mv_visual_design(
 def _run_common(
     brief,
     provider: LLMProvider,
-    rag: RAGStore,
     paths: ProjectPaths,
     progress: ProgressCallback | None,
     *,
     suno_params: SunoMusicParams | None = None,
     creation_mode: str,
 ) -> ProductionDesign:
-    total = 11 if suno_params is None else 10
+    total = 5 if suno_params is None else 4
     current = 2
     if suno_params is None:
         _notify(progress, "music", "Suno歌詞とstyleを生成しています", current, total)
@@ -182,56 +154,25 @@ def _run_common(
     song_sections = SongAnalysisAgent(provider).run(brief, suno_params)
     finalize_song_duration(brief, suno_params, song_sections)
     current += 1
-    _notify(progress, "mv-visual-plan", "歌詞とstyleに準拠するMV映像方針を生成しています", current, total)
-    mv_visual_plan = MVVisualPlannerAgent(provider).run(brief, suno_params, song_sections)
-    mv_context = build_mv_context(
-        suno_params=suno_params,
-        song_sections=song_sections,
-        mv_visual_plan=mv_visual_plan,
-    )
+    _notify(progress, "slideshow", "歌詞セクションに合う画像スライドを設計しています", current, total)
+    slideshow = SlideshowPlannerAgent(provider).run(brief, suno_params, song_sections)
     current += 1
-    _notify(progress, "mv-beats", "曲構成に沿ってMVビートを生成しています", current, total)
-    mv_beats = MVBeatPlannerAgent(provider).run(brief, mv_context=mv_context)
-    current += 1
-    _notify(progress, "characters", "キャラクター設計エージェントで参照情報を整理しています", current, total)
-    characters = CharacterAgent(provider).run(brief, mv_beats, rag, mv_context=mv_context)
-    current += 1
-    _notify(progress, "scenes", "シーン設計エージェントで場面構成を作っています", current, total)
-    scenes = ScenePlannerAgent(provider).run(brief, mv_beats, characters, rag, mv_context=mv_context)
-    current += 1
-    _notify(progress, "shots", "ショット設計エージェントでカメラと構図を作っています", current, total)
-    shots = ShotDirectorAgent(provider).run(brief, scenes, characters, rag, mv_context=mv_context)
-    current += 1
-    _notify(progress, "prompts", "画像プロンプトと静止画MV編集メモを作っています", current, total)
-    prompts = PromptEngineerAgent(provider).run(brief, shots, rag, mv_context=mv_context)
-
-    current += 1
-    _notify(progress, "design", "制作設計データを統合しています", current, total)
+    _notify(progress, "design", "画像スライド設計を保存しています", current, total)
     design = ProductionDesign(
         brief=brief,
-        mv_beats=mv_beats.items,
-        characters=characters.items,
-        scenes=scenes.items,
-        shots=shots.items,
-        image_prompts=prompts.image_prompts,
-        editing_prompts=prompts.editing_prompts,
-        rag_trace=rag.trace,
+        mv_beats=[],
+        characters=[],
+        scenes=[],
+        shots=slideshow.shots,
+        image_prompts=slideshow.image_prompts,
+        editing_prompts=slideshow.editing_prompts,
+        rag_trace=[],
         learning_notes=_learning_notes(),
         suno_params=suno_params,
         song_sections=song_sections,
-        mv_visual_plan=mv_visual_plan,
+        mv_visual_plan=None,
         creation_mode=creation_mode,
     )
-    current += 1
-    _notify(progress, "critic", "継続性評価エージェントで矛盾を確認しています", current, total)
-    report = ContinuityCriticAgent(provider).run(design, rag)
-    design.continuity_issues = report.issues
-    if report.issues:
-        revision = RevisionAgent(provider).run(design, rag)
-        design.learning_notes.extend(f"修正ループ: {note}" for note in revision.notes)
-
-    design.rag_trace = rag.trace
-    rag.save()
     write_all_outputs(design, paths.root)
     return design
 
@@ -262,8 +203,6 @@ def _learning_notes() -> list[str]:
     return [
         "Gemini Provider: モデル呼び出しをProvider層に閉じ込め、将来の差し替えを容易にしています。",
         "構造化出力: 各エージェントの返答をPydanticで検証できるデータにしています。",
-        "エージェント設計: 企画、MVビート、キャラクター、シーン、ショット、プロンプト、評価、修正を分離しています。",
-        "RAG: キャラクター、ショット、プロンプト、画像メタデータを検索し、継続性維持に使います。",
-        "評価と改善: 継続性評価エージェントで最終出力前に問題点を確認します。",
-        "MVモード: Sunoで音楽を生成し、歌詞字幕付きのミュージックビデオを作る設計に寄せています。",
+        "軽量な画像スライド設計: 曲構成から表示画像、画像生成プロンプト、静止画編集指示を一度に生成します。",
+        "静止画MVモード: Sunoで音楽を生成し、歌詞字幕付きの画像スライドショーを作る設計に寄せています。",
     ]

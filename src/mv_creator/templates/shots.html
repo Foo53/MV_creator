@@ -6,7 +6,7 @@
     <h1>画像プロンプト・アップロード</h1>
     <a class="button secondary" href="/projects/{{ project }}">戻る</a>
   </div>
-  <p class="muted">プロンプトをChatGPTへ貼り付け、生成した画像を対応するショットへアップロードしてください。</p>
+  <p class="muted">プロンプトをChatGPTへ貼り付け、生成した画像を対応する画像スライドへアップロードしてください。</p>
   <div class="grid">
     <div class="stat"><strong>総数</strong><br>{{ counts.total }}</div>
     <div class="stat"><strong>アップロード済み</strong><br>{{ counts.generated }}</div>
@@ -53,7 +53,7 @@ Aspect ratio: {{ row.prompt.aspect_ratio }}</textarea>
     <form method="post" action="/projects/{{ project }}/shots/{{ row.shot.shot_id }}/upload" enctype="multipart/form-data">
       <label>ChatGPTで生成した画像</label>
       <input type="file" name="file" accept="image/*" required data-preview-target="{{ row.shot.shot_id }}">
-      <p><button type="submit">このショットへ保存</button></p>
+      <p><button type="submit">この画像スライドへ保存</button></p>
     </form>
   </section>
 {% endfor %}

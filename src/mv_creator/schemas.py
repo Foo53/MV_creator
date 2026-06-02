@@ -39,6 +39,12 @@ class PromptBundle(BaseModel):
     editing_prompts: list[MVEditingPrompt] = Field(default_factory=list, validation_alias=AliasChoices("editing_prompts", "video_prompts"))
 
 
+class SlideshowBundle(BaseModel):
+    shots: list[ShotPlan] = Field(default_factory=list)
+    image_prompts: list[ImagePrompt] = Field(default_factory=list)
+    editing_prompts: list[MVEditingPrompt] = Field(default_factory=list, validation_alias=AliasChoices("editing_prompts", "video_prompts"))
+
+
 class ContinuityReport(BaseModel):
     issues: list[ContinuityIssue] = Field(default_factory=list)
 

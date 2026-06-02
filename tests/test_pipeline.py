@@ -239,7 +239,7 @@ class PipelineTest(unittest.TestCase):
             output = StringIO()
             with redirect_stdout(output):
                 main(["--output-root", temp, "inspect-rag", "--project", "demo"])
-            self.assertIn("character:", output.getvalue())
+            self.assertIn('"records": []', output.getvalue())
 
     def test_timeline_command_writes_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -412,7 +412,7 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("[End]", design.suno_params.lyrics)
             self.assertTrue(any(":" in line for line in design.suno_params.lyrics.split("\n") if line.startswith("[")))
             self.assertTrue(design.song_sections)
-            self.assertIsNotNone(design.mv_visual_plan)
+            self.assertIsNone(design.mv_visual_plan)
 
     def test_mv_mode_lyrics_in_captions(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -632,8 +632,8 @@ class PipelineTest(unittest.TestCase):
             main(["--output-root", temp, "rebuild-mv-visuals", "--project", "demo", "--provider", "mock"])
             design = ProductionDesign.model_validate_json((Path(temp) / "demo" / "design.json").read_text(encoding="utf-8"))
             self.assertTrue(design.song_sections)
-            self.assertIsNotNone(design.mv_visual_plan)
-            self.assertIn("MV再設計", "\n".join(design.learning_notes))
+            self.assertIsNone(design.mv_visual_plan)
+            self.assertIn("画像スライド再設計", "\n".join(design.learning_notes))
 
     def test_web_generation_job_completes_with_mock_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -656,8 +656,8 @@ class PipelineTest(unittest.TestCase):
             )
             result = jobs.get(job.id)
             self.assertEqual(result.status, "completed")
-            self.assertEqual(result.current, 11)
-            self.assertEqual(result.total, 11)
+            self.assertEqual(result.current, 5)
+            self.assertEqual(result.total, 5)
 
     def test_web_generation_job_from_lyrics_preserves_input(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -681,8 +681,8 @@ class PipelineTest(unittest.TestCase):
             )
             result = jobs.get(job.id)
             self.assertEqual(result.status, "completed")
-            self.assertEqual(result.current, 10)
-            self.assertEqual(result.total, 10)
+            self.assertEqual(result.current, 4)
+            self.assertEqual(result.total, 4)
             design = ProductionDesign.model_validate_json((Path(temp) / "web-lyrics-demo" / "design.json").read_text(encoding="utf-8"))
             self.assertEqual(design.creation_mode, "lyrics_to_mv")
             self.assertEqual(design.suno_params.lyrics, lyrics)

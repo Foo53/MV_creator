@@ -12,14 +12,14 @@
   <p>{{ design.brief.logline }}</p>
   <p class="muted">制作モード: {% if design.creation_mode == "lyrics_to_mv" %}入力済み歌詞から静止画MVを作成{% else %}アイデアから曲と静止画MVを作成{% endif %}</p>
   <div class="grid">
-    <div class="stat"><strong>ショット数</strong><br>{{ counts.total }}</div>
+    <div class="stat"><strong>画像スライド数</strong><br>{{ counts.total }}</div>
     <div class="stat"><strong>画像生成済み</strong><br>{{ counts.generated }}</div>
     <div class="stat"><strong>残り生成枚数</strong><br>{{ counts.remaining }}</div>
   </div>
 </section>
 <section class="panel">
   <h2>Remotion動画</h2>
-  <p class="muted">生成済み画像をショット順につなげ、歌詞字幕とアップロード済みBGMを含むMP4を作成します。</p>
+  <p class="muted">生成済み画像をスライド順につなげ、歌詞字幕とアップロード済みBGMを含むMP4を作成します。</p>
   <div class="toolbar">
     <form method="post" action="/projects/{{ project }}/timeline">
       <button type="submit">タイムラインを生成</button>
@@ -37,26 +37,5 @@
     {% endif %}
   </div>
   <p class="help">初回レンダリング前に `remotion/` ディレクトリで `npm install` が必要です。</p>
-</section>
-<section class="grid">
-  <div class="panel">
-    <h2>キャラクター</h2>
-    {% for character in design.characters %}
-      <h3>{{ character.name }}</h3>
-      <p>{{ character.appearance }}</p>
-      <p class="muted">{{ character.wardrobe }}</p>
-    {% endfor %}
-  </div>
-  <div class="panel">
-    <h2>継続性指摘</h2>
-    {% if design.continuity_issues %}
-      {% for issue in design.continuity_issues %}
-        <p><span class="badge warn">{{ issue.severity }}</span> {{ issue.location }}</p>
-        <p>{{ issue.issue }}</p>
-      {% endfor %}
-    {% else %}
-      <p class="muted">指摘はありません。</p>
-    {% endif %}
-  </div>
 </section>
 {% endblock %}

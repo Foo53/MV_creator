@@ -54,11 +54,8 @@ def render_design(design: ProductionDesign) -> str:
             design.suno_params.lyrics,
             "",
         ])
-    lines.extend([
-        "## キャラクター",
-    ])
     if design.song_sections:
-        lines.extend(["## MV曲構成分析", ""])
+        lines.extend(["## 曲構成分析", ""])
         for section in design.song_sections:
             lines.extend(
                 [
@@ -83,40 +80,43 @@ def render_design(design: ProductionDesign) -> str:
                 "",
             ]
         )
-    for character in design.characters:
-        lines.extend(
-            [
-                f"### {character.name}",
-                f"- 役割: {character.role}",
-                f"- 性格: {character.personality}",
-                f"- 外見: {character.appearance}",
-                f"- 衣装: {character.wardrobe}",
-                f"- 継続性メモ: {'; '.join(character.continuity_notes)}",
-                "",
-            ]
-        )
-    lines.append("## シーン")
-    for scene in design.scenes:
-        lines.extend(
-            [
-                f"### {scene.scene_id}: {scene.title}",
-                f"- 場所: {scene.location}",
-                f"- 時間帯: {scene.time_of_day}",
-                f"- 概要: {scene.summary}",
-                f"- 登場人物: {', '.join(scene.characters)}",
-                "",
-            ]
-        )
+    if design.characters:
+        lines.extend(["## キャラクター", ""])
+        for character in design.characters:
+            lines.extend(
+                [
+                    f"### {character.name}",
+                    f"- 役割: {character.role}",
+                    f"- 性格: {character.personality}",
+                    f"- 外見: {character.appearance}",
+                    f"- 衣装: {character.wardrobe}",
+                    f"- 継続性メモ: {'; '.join(character.continuity_notes)}",
+                    "",
+                ]
+            )
+    if design.scenes:
+        lines.extend(["## シーン", ""])
+        for scene in design.scenes:
+            lines.extend(
+                [
+                    f"### {scene.scene_id}: {scene.title}",
+                    f"- 場所: {scene.location}",
+                    f"- 時間帯: {scene.time_of_day}",
+                    f"- 概要: {scene.summary}",
+                    f"- 登場人物: {', '.join(scene.characters)}",
+                    "",
+                ]
+            )
     return "\n".join(lines)
 
 
 def render_storyboard(design: ProductionDesign) -> str:
-    lines = ["# 絵コンテ", ""]
+    lines = ["# 画像スライド設計", ""]
     for shot in design.shots:
         lines.extend(
             [
                 f"## {shot.shot_id}",
-                f"- シーン: {shot.scene_id}",
+                f"- 画像グループ: {shot.scene_id}",
                 f"- 内容: {shot.description}",
                 f"- カメラ: {shot.camera}",
                 f"- レンズ: {shot.lens}",

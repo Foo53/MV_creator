@@ -380,6 +380,14 @@ def _mock_payload(name: str, prompt: str) -> dict:
                 for shot in shots
             ],
         }
+    if name == "SlideshowBundle":
+        shots = _mock_payload("ShotList", prompt)["items"]
+        prompts = _mock_payload("PromptBundle", prompt)
+        return {
+            "shots": shots,
+            "image_prompts": prompts["image_prompts"],
+            "editing_prompts": prompts["editing_prompts"],
+        }
     if name == "SongSectionList":
         return {
             "items": [

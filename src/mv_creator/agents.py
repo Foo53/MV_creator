@@ -5,7 +5,7 @@ from typing import Callable
 from mv_creator.models import MVVisualPlan, ProductionBrief, ProductionDesign, SongSection, SunoMusicParams
 from mv_creator.providers import LLMProvider
 from mv_creator.rag import RAGStore
-from mv_creator.schemas import CharacterList, ContinuityReport, MVBeatList, MVVisualPlanSchema, PromptBundle, RevisionResult, SceneList, ShotList, SongSectionList, SunoMusicParamsSchema, ViralChallenge, ViralScore
+from mv_creator.schemas import CharacterList, ContinuityReport, MVBeatList, MVVisualPlanSchema, PromptBundle, RevisionResult, SceneList, ShotList, SlideshowBundle, SongSectionList, SunoMusicParamsSchema, ViralChallenge, ViralScore
 
 
 class Agent:
@@ -513,6 +513,37 @@ Sunoパラメータ:
 {suno_params.model_dump_json(indent=2)}
 """
         return self.provider.generate_structured(prompt, SongSectionList).items
+
+
+class SlideshowPlannerAgent(Agent):
+    name = "画像スライド設計エージェント"
+
+    def run(self, brief: ProductionBrief, suno_params: SunoMusicParams, song_sections: list[SongSection]) -> SlideshowBundle:
+        prompt = f"""
+あなたは歌詞付き静止画スライドショーMVの画像設計エージェントです。
+曲を流している間に、歌詞や雰囲気に合う一枚絵を切り替えて表示するための設計を一度に作ってください。
+動画生成用の連続動作、細かなカット割り、複雑なキャラクター設定、映像作品向けの演出設計は不要です。
+
+要件:
+- 歌詞セクションごとに1枚を基本とし、長いセクションだけ必要に応じて2枚へ分けてください。
+- shots、image_prompts、editing_prompts は同じ shot_id で対応させてください。
+- 各画像は単独の一枚絵として成立させ、歌詞字幕を重ねる余白を確保してください。
+- image_prompts.prompt と image_prompts.negative_prompt はChatGPT画像生成へ渡せる英語で書いてください。
+- editing_prompts は静止画の hold、slow zoom、slow pan、crossfade を中心にしてください。
+- recurring character は歌詞に不可欠な場合だけ使い、不要なら雰囲気や情景を優先してください。
+- still_duration_seconds の合計は制作ブリーフの duration_seconds におおむね合わせてください。
+{still_image_mv_instruction()}
+
+制作ブリーフ:
+{brief.model_dump_json(indent=2)}
+
+Sunoパラメータ:
+{suno_params.model_dump_json(indent=2)}
+
+曲構成:
+{[section.model_dump() for section in song_sections]}
+"""
+        return self.provider.generate_structured(prompt, SlideshowBundle)
 
 
 class MVVisualPlannerAgent(Agent):

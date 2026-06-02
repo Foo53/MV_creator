@@ -179,7 +179,7 @@ def _invalidate_mv_visual_design(design: ProductionDesign, paths: ProjectPaths) 
     design.rag_trace = []
     design.song_sections = []
     design.mv_visual_plan = None
-    design.learning_notes.append("音楽設定変更: 古いMV映像設計を無効化しました。映像設計を再生成してください。")
+    design.learning_notes.append("音楽設定変更: 古い画像スライド設計を無効化しました。画像スライド設計を再生成してください。")
     (paths.root / "timeline_manifest.json").unlink(missing_ok=True)
 
 
@@ -508,7 +508,7 @@ def _run_generation_job(
     model: str,
     output_root: Path,
 ) -> None:
-    total = 10 if creation_mode == "lyrics_to_mv" else 11
+    total = 4 if creation_mode == "lyrics_to_mv" else 5
     jobs.update(job_id, status="running", message="制作設計を開始しました", current=0, total=total)
 
     def progress(stage: str, message: str, current: int, total: int) -> None:
@@ -624,7 +624,7 @@ def _run_mv_rebuild_job(
     model: str,
     output_root: Path,
 ) -> None:
-    jobs.update(job_id, status="running", stage="mv-rebuild", message="MV映像設計の再生成を開始しました", current=0, total=7)
+    jobs.update(job_id, status="running", stage="mv-rebuild", message="画像スライド設計の再生成を開始しました", current=0, total=3)
 
     def progress(stage: str, message: str, current: int, total: int) -> None:
         jobs.update(job_id, stage=stage, message=message, current=current, total=total)
@@ -643,9 +643,9 @@ def _run_mv_rebuild_job(
             job_id,
             status="completed",
             stage="completed",
-            message="Suno歌詞・styleに準拠したMV映像設計を再生成しました",
-            current=7,
-            total=7,
+            message="Suno歌詞・styleに準拠した画像スライド設計を再生成しました",
+            current=3,
+            total=3,
             result_url=f"/projects/{project}",
         )
     except ProviderError as exc:
